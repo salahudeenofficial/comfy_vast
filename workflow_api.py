@@ -336,6 +336,37 @@ def main():
         # Show what custom nodes we have
         print(f"Custom nodes available: {list(custom_node_mappings.keys())}")
     
+    # Load comfy_extras nodes that contain the missing workflow nodes
+    print("Loading comfy_extras nodes...")
+    try:
+        # Import comfy_extras nodes
+        import comfy_extras.nodes_wan
+        import comfy_extras.nodes_model_advanced
+        
+        # Get the node mappings from comfy_extras
+        wan_nodes = comfy_extras.nodes_wan.NODE_CLASS_MAPPINGS
+        model_nodes = comfy_extras.nodes_model_advanced.NODE_CLASS_MAPPINGS
+        
+        print(f"Found {len(wan_nodes)} wan nodes, {len(model_nodes)} model nodes")
+        
+        # Merge them into the main NODE_CLASS_MAPPINGS
+        NODE_CLASS_MAPPINGS.update(wan_nodes)
+        NODE_CLASS_MAPPINGS.update(model_nodes)
+        
+        print(f"Total nodes after comfy_extras merge: {len(NODE_CLASS_MAPPINGS)}")
+        
+        # Check if our missing nodes are now available
+        for node in ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']:
+            if node in NODE_CLASS_MAPPINGS:
+                print(f"✓ {node} now available from comfy_extras")
+            else:
+                print(f"✗ {node} still missing")
+                
+    except Exception as e:
+        print(f"Error loading comfy_extras: {e}")
+        import traceback
+        traceback.print_exc()
+    
     # Check for the specific nodes your workflow needs
     workflow_nodes = ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']
     missing_workflow_nodes = []
