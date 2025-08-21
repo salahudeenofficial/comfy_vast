@@ -346,15 +346,51 @@ def main():
         import comfy_extras.nodes_wan
         import comfy_extras.nodes_model_advanced
         
-        # Get the node mappings
-        wan_nodes = comfy_extras.nodes_wan.NODE_CLASS_MAPPINGS
-        model_nodes = comfy_extras.nodes_model_advanced.NODE_CLASS_MAPPINGS
+        # Get the node mappings - handle both old and new style
+        wan_nodes = {}
+        model_nodes = {}
         
-        print(f"Found {len(wan_nodes)} wan nodes, {len(model_nodes)} model nodes")
+        # Check if nodes_wan has NODE_CLASS_MAPPINGS (old style)
+        if hasattr(comfy_extras.nodes_wan, 'NODE_CLASS_MAPPINGS'):
+            wan_nodes = comfy_extras.nodes_wan.NODE_CLASS_MAPPINGS
+            print(f"Found {len(wan_nodes)} wan nodes (old style)")
+        else:
+            # New style - try to get nodes from ComfyExtension
+            try:
+                if hasattr(comfy_extras.nodes_wan, 'WanExtension'):
+                    # Create a temporary instance to get the node list
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    extension = loop.run_until_complete(comfy_extras.nodes_wan.comfy_entrypoint())
+                    node_list = loop.run_until_complete(extension.get_node_list())
+                    
+                    # Convert to NODE_CLASS_MAPPINGS format
+                    for node_class in node_list:
+                        if hasattr(node_class, 'define_schema'):
+                            schema = node_class.define_schema()
+                            if hasattr(schema, 'node_id'):
+                                wan_nodes[schema.node_id] = node_class
+                    
+                    print(f"Found {len(wan_nodes)} wan nodes (new style)")
+                else:
+                    print("No WanExtension found in nodes_wan")
+            except Exception as e:
+                print(f"Error processing new-style nodes_wan: {e}")
+        
+        # Check if nodes_model_advanced has NODE_CLASS_MAPPINGS
+        if hasattr(comfy_extras.nodes_model_advanced, 'NODE_CLASS_MAPPINGS'):
+            model_nodes = comfy_extras.nodes_model_advanced.NODE_CLASS_MAPPINGS
+            print(f"Found {len(model_nodes)} model nodes")
+        else:
+            print("No NODE_CLASS_MAPPINGS found in nodes_model_advanced")
         
         # Merge them into the main NODE_CLASS_MAPPINGS
-        NODE_CLASS_MAPPINGS.update(wan_nodes)
-        NODE_CLASS_MAPPINGS.update(model_nodes)
+        if wan_nodes:
+            NODE_CLASS_MAPPINGS.update(wan_nodes)
+        if model_nodes:
+            NODE_CLASS_MAPPINGS.update(model_nodes)
         
         print(f"Total nodes after comfy_extras merge: {len(NODE_CLASS_MAPPINGS)}")
         
