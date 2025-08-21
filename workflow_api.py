@@ -306,6 +306,27 @@ def main():
         LoadImage,
     )
     
+    # Debug: Check what core nodes we have
+    print(f"Core ComfyUI nodes loaded: {len(NODE_CLASS_MAPPINGS)}")
+    
+    # Check for specific core nodes that should be available
+    expected_core_nodes = [
+        'LoadImage', 'VAELoader', 'UNETLoader', 'CLIPLoader', 'KSampler', 
+        'VAEDecode', 'CLIPTextEncode', 'LoraLoader', 'SaveImage'
+    ]
+    
+    missing_core_nodes = []
+    for node in expected_core_nodes:
+        if node in NODE_CLASS_MAPPINGS:
+            print(f"✓ Core node {node} found")
+        else:
+            print(f"✗ Core node {node} missing")
+            missing_core_nodes.append(node)
+    
+    if missing_core_nodes:
+        print(f"⚠️  Missing core nodes: {missing_core_nodes}")
+        print("This suggests ComfyUI isn't fully initialized.")
+    
     # Manually merge custom nodes if they weren't merged automatically
     if custom_node_mappings:
         print(f"Merging {len(custom_node_mappings)} custom nodes into main mappings...")
@@ -314,21 +335,32 @@ def main():
         
         # Show what custom nodes we have
         print(f"Custom nodes available: {list(custom_node_mappings.keys())}")
+    
+    # Check for the specific nodes your workflow needs
+    workflow_nodes = ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']
+    missing_workflow_nodes = []
+    for node in workflow_nodes:
+        if node in NODE_CLASS_MAPPINGS:
+            print(f"✓ Workflow node {node} found")
+        else:
+            print(f"✗ Workflow node {node} missing")
+            missing_workflow_nodes.append(node)
+    
+    if missing_workflow_nodes:
+        print(f"⚠️  Missing workflow nodes: {missing_workflow_nodes}")
+        print("These nodes are required for your workflow to run.")
         
-        # Check for specific nodes the workflow needs
-        required_custom_nodes = ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent', 'VHS_VideoCombine']
-        missing_nodes = []
-        for node in required_custom_nodes:
-            if node in NODE_CLASS_MAPPINGS:
-                print(f"✓ {node} found")
-            else:
-                print(f"✗ {node} missing")
-                missing_nodes.append(node)
+        # Show what nodes we do have (first 20)
+        available_nodes = list(NODE_CLASS_MAPPINGS.keys())
+        print(f"Available nodes (first 20): {available_nodes[:20]}")
         
-        if missing_nodes:
-            print(f"\n⚠️  Missing required custom nodes: {missing_nodes}")
-            print("This workflow requires additional custom nodes that aren't available.")
-            return
+        # Check if these might be in a different namespace
+        print("\nSearching for similar node names...")
+        for node_name in available_nodes:
+            if any(keyword in node_name.lower() for keyword in ['wan', 'video', 'latent', 'sampling', 'model']):
+                print(f"  Related node found: {node_name}")
+        
+        return
     
     # Verify VHS_LoadVideo is available
     if 'VHS_LoadVideo' not in NODE_CLASS_MAPPINGS:
