@@ -339,21 +339,22 @@ def main():
     # Load comfy_extras nodes that contain the missing workflow nodes
     print("Loading comfy_extras nodes...")
     try:
-        # Import comfy_extras nodes
-        import comfy_extras.nodes_wan
-        import comfy_extras.nodes_model_advanced
+        # Use ComfyUI's built-in function to load comfy_extras nodes
+        from nodes import init_builtin_extra_nodes
         
-        # Get the node mappings from comfy_extras
-        wan_nodes = comfy_extras.nodes_wan.NODE_CLASS_MAPPINGS
-        model_nodes = comfy_extras.nodes_model_advanced.NODE_CLASS_MAPPINGS
+        print("Calling init_builtin_extra_nodes...")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
-        print(f"Found {len(wan_nodes)} wan nodes, {len(model_nodes)} model nodes")
+        # Load all comfy_extras nodes
+        import_failed = loop.run_until_complete(init_builtin_extra_nodes())
         
-        # Merge them into the main NODE_CLASS_MAPPINGS
-        NODE_CLASS_MAPPINGS.update(wan_nodes)
-        NODE_CLASS_MAPPINGS.update(model_nodes)
-        
-        print(f"Total nodes after comfy_extras merge: {len(NODE_CLASS_MAPPINGS)}")
+        if import_failed:
+            print(f"⚠️  Some comfy_extras nodes failed to load: {import_failed}")
+        else:
+            print("✓ All comfy_extras nodes loaded successfully")
+            
+        print(f"Total nodes after comfy_extras load: {len(NODE_CLASS_MAPPINGS)}")
         
         # Check if our missing nodes are now available
         for node in ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']:
