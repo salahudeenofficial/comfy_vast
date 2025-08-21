@@ -339,22 +339,24 @@ def main():
     # Load comfy_extras nodes that contain the missing workflow nodes
     print("Loading comfy_extras nodes...")
     try:
-        # Use ComfyUI's built-in function to load comfy_extras nodes
-        from nodes import init_builtin_extra_nodes
+        # Direct import approach - import all comfy_extras nodes
+        print("Importing comfy_extras nodes directly...")
         
-        print("Calling init_builtin_extra_nodes...")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Import the specific modules we need
+        import comfy_extras.nodes_wan
+        import comfy_extras.nodes_model_advanced
         
-        # Load all comfy_extras nodes
-        import_failed = loop.run_until_complete(init_builtin_extra_nodes())
+        # Get the node mappings
+        wan_nodes = comfy_extras.nodes_wan.NODE_CLASS_MAPPINGS
+        model_nodes = comfy_extras.nodes_model_advanced.NODE_CLASS_MAPPINGS
         
-        if import_failed:
-            print(f"⚠️  Some comfy_extras nodes failed to load: {import_failed}")
-        else:
-            print("✓ All comfy_extras nodes loaded successfully")
-            
-        print(f"Total nodes after comfy_extras load: {len(NODE_CLASS_MAPPINGS)}")
+        print(f"Found {len(wan_nodes)} wan nodes, {len(model_nodes)} model nodes")
+        
+        # Merge them into the main NODE_CLASS_MAPPINGS
+        NODE_CLASS_MAPPINGS.update(wan_nodes)
+        NODE_CLASS_MAPPINGS.update(model_nodes)
+        
+        print(f"Total nodes after comfy_extras merge: {len(NODE_CLASS_MAPPINGS)}")
         
         # Check if our missing nodes are now available
         for node in ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']:
@@ -367,6 +369,40 @@ def main():
         print(f"Error loading comfy_extras: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Fallback: try to import all comfy_extras files
+        print("Trying fallback: importing all comfy_extras files...")
+        try:
+            import os
+            import importlib.util
+            
+            comfy_extras_dir = os.path.join(os.getcwd(), 'comfy_extras')
+            if os.path.exists(comfy_extras_dir):
+                for filename in os.listdir(comfy_extras_dir):
+                    if filename.endswith('.py') and filename.startswith('nodes_'):
+                        try:
+                            module_path = os.path.join(comfy_extras_dir, filename)
+                            spec = importlib.util.spec_from_file_location(filename[:-3], module_path)
+                            module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(module)
+                            
+                            if hasattr(module, 'NODE_CLASS_MAPPINGS'):
+                                NODE_CLASS_MAPPINGS.update(module.NODE_CLASS_MAPPINGS)
+                                print(f"✓ Loaded {filename} with {len(module.NODE_CLASS_MAPPINGS)} nodes")
+                        except Exception as import_error:
+                            print(f"✗ Failed to load {filename}: {import_error}")
+                
+                print(f"Total nodes after fallback load: {len(NODE_CLASS_MAPPINGS)}")
+                
+                # Check again for our missing nodes
+                for node in ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']:
+                    if node in NODE_CLASS_MAPPINGS:
+                        print(f"✓ {node} now available after fallback")
+                    else:
+                        print(f"✗ {node} still missing after fallback")
+                        
+        except Exception as fallback_error:
+            print(f"Fallback also failed: {fallback_error}")
     
     # Check for the specific nodes your workflow needs
     workflow_nodes = ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']
