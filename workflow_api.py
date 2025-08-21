@@ -127,18 +127,39 @@ def import_custom_nodes() -> None:
             execution.PromptQueue(server_instance)
 
             # Initializing custom nodes
+            print("Running init_extra_nodes...")
             loop.run_until_complete(init_extra_nodes())
+            
+            # Manual fallback: try to import and merge custom nodes directly
+            print("Attempting manual custom node import...")
+            try:
+                # Add custom_nodes to path
+                sys.path.insert(0, os.path.join(comfyui_path, 'custom_nodes'))
+                
+                # Try to import videohelpersuite
+                import comfyui_videohelpersuite.videohelpersuite.nodes as vhs_nodes
+                print(f"✓ Successfully imported videohelpersuite with {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
+                
+                # Return the custom node mappings for manual merging
+                return vhs_nodes.NODE_CLASS_MAPPINGS
+                
+            except Exception as e:
+                print(f"Manual import failed: {e}")
+                return {}
+                
         finally:
             # Restore original working directory and sys.path
             os.chdir(original_cwd)
             sys.path = original_sys_path
             print(f"Restored working directory: {original_cwd}")
+    
+    return {}
 
 
 def main():
     # Load custom nodes FIRST, before importing NODE_CLASS_MAPPINGS
     print("Loading custom nodes...")
-    import_custom_nodes()
+    custom_node_mappings = import_custom_nodes()
     
     # Now import NODE_CLASS_MAPPINGS after custom nodes are loaded
     print("Importing node mappings...")
@@ -154,10 +175,21 @@ def main():
         LoadImage,
     )
     
+    # Manually merge custom nodes if they weren't merged automatically
+    if custom_node_mappings:
+        print(f"Merging {len(custom_node_mappings)} custom nodes into main mappings...")
+        NODE_CLASS_MAPPINGS.update(custom_node_mappings)
+        print(f"Total nodes after merge: {len(NODE_CLASS_MAPPINGS)}")
+    
     # Verify VHS_LoadVideo is available
     if 'VHS_LoadVideo' not in NODE_CLASS_MAPPINGS:
         print("ERROR: VHS_LoadVideo not found in NODE_CLASS_MAPPINGS!")
         print("Available nodes:", list(NODE_CLASS_MAPPINGS.keys())[:20])
+        
+        # Show what custom nodes we have
+        if custom_node_mappings:
+            print(f"\nCustom nodes available: {list(custom_node_mappings.keys())}")
+        
         return
     
     print("✓ VHS_LoadVideo found, proceeding with workflow...")
