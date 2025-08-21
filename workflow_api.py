@@ -95,7 +95,7 @@ add_comfyui_directory_to_sys_path()
 add_extra_model_paths()
 
 
-def import_custom_nodes() -> None:
+def import_custom_nodes() -> dict:
     """Find all custom nodes in the custom_nodes folder and add those node objects to NODE_CLASS_MAPPINGS
 
     This function sets up a new asyncio event loop, initializes the PromptServer,
@@ -130,29 +130,69 @@ def import_custom_nodes() -> None:
             print("Running init_extra_nodes...")
             loop.run_until_complete(init_extra_nodes())
             
-            # Manual fallback: try to import and merge custom nodes directly
-            print("Attempting manual custom node import...")
+        except Exception as e:
+            print(f"init_extra_nodes failed: {e}")
+        
+        # Manual fallback: try to import and merge custom nodes directly
+        print("Attempting manual custom node import...")
+        try:
+            # Add custom_nodes to path
+            custom_nodes_path = os.path.join(comfyui_path, 'custom_nodes')
+            sys.path.insert(0, custom_nodes_path)
+            print(f"Added {custom_nodes_path} to Python path")
+            
+            # List what's in the custom_nodes directory
+            print(f"Contents of {custom_nodes_path}: {os.listdir(custom_nodes_path)}")
+            
+            # Try different import approaches
             try:
-                # Add custom_nodes to path
-                sys.path.insert(0, os.path.join(comfyui_path, 'custom_nodes'))
-                
-                # Try to import videohelpersuite
+                # Approach 1: Direct import
                 import comfyui_videohelpersuite.videohelpersuite.nodes as vhs_nodes
-                print(f"✓ Successfully imported videohelpersuite with {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
-                
-                # Return the custom node mappings for manual merging
+                print(f"✓ Approach 1 succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
                 return vhs_nodes.NODE_CLASS_MAPPINGS
+            except ImportError as e1:
+                print(f"Approach 1 failed: {e1}")
                 
-            except Exception as e:
-                print(f"Manual import failed: {e}")
-                return {}
-                
+                # Approach 2: Try with underscore
+                try:
+                    import comfyui_videohelpersuite.videohelpersuite.nodes as vhs_nodes
+                    print(f"✓ Approach 2 succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
+                    return vhs_nodes.NODE_CLASS_MAPPINGS
+                except ImportError as e2:
+                    print(f"Approach 2 failed: {e2}")
+                    
+                    # Approach 3: Try importing the package first
+                    try:
+                        import comfyui_videohelpersuite
+                        print("✓ Imported comfyui_videohelpersuite package")
+                        from comfyui_videohelpersuite.videohelpersuite.nodes import NODE_CLASS_MAPPINGS
+                        print(f"✓ Approach 3 succeeded: {len(NODE_CLASS_MAPPINGS)} nodes")
+                        return NODE_CLASS_MAPPINGS
+                    except ImportError as e3:
+                        print(f"Approach 3 failed: {e3}")
+                        
+                        # Approach 4: Try importing from the full path
+                        try:
+                            sys.path.insert(0, os.path.join(custom_nodes_path, 'comfyui-videohelpersuite'))
+                            import videohelpersuite.nodes as vhs_nodes
+                            print(f"✓ Approach 4 succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
+                            return vhs_nodes.NODE_CLASS_MAPPINGS
+                        except ImportError as e4:
+                            print(f"Approach 4 failed: {e4}")
+                            raise ImportError(f"All import approaches failed. Last error: {e4}")
+            
+        except Exception as e:
+            print(f"Manual import failed: {e}")
+            import traceback
+            traceback.print_exc()
+        
         finally:
             # Restore original working directory and sys.path
             os.chdir(original_cwd)
             sys.path = original_sys_path
             print(f"Restored working directory: {original_cwd}")
     
+    print("No custom nodes could be loaded")
     return {}
 
 
