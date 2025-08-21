@@ -311,6 +311,24 @@ def main():
         print(f"Merging {len(custom_node_mappings)} custom nodes into main mappings...")
         NODE_CLASS_MAPPINGS.update(custom_node_mappings)
         print(f"Total nodes after merge: {len(NODE_CLASS_MAPPINGS)}")
+        
+        # Show what custom nodes we have
+        print(f"Custom nodes available: {list(custom_node_mappings.keys())}")
+        
+        # Check for specific nodes the workflow needs
+        required_custom_nodes = ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent', 'VHS_VideoCombine']
+        missing_nodes = []
+        for node in required_custom_nodes:
+            if node in NODE_CLASS_MAPPINGS:
+                print(f"✓ {node} found")
+            else:
+                print(f"✗ {node} missing")
+                missing_nodes.append(node)
+        
+        if missing_nodes:
+            print(f"\n⚠️  Missing required custom nodes: {missing_nodes}")
+            print("This workflow requires additional custom nodes that aren't available.")
+            return
     
     # Verify VHS_LoadVideo is available
     if 'VHS_LoadVideo' not in NODE_CLASS_MAPPINGS:
