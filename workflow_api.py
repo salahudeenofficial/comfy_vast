@@ -101,9 +101,15 @@ def import_custom_nodes() -> dict:
     This function sets up a new asyncio event loop, initializes the PromptServer,
     creates a PromptQueue, and initializes the custom nodes.
     """
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"Current sys.path: {sys.path[:3]}...")  # Show first 3 paths
+    
     # Ensure we're in the ComfyUI directory for imports to work correctly
     comfyui_path = find_path("ComfyUI")
+    print(f"find_path('ComfyUI') returned: {comfyui_path}")
+    
     if comfyui_path is not None and os.path.isdir(comfyui_path):
+        print(f"ComfyUI path found and is directory: {comfyui_path}")
         original_cwd = os.getcwd()
         original_sys_path = sys.path.copy()
 
@@ -191,6 +197,49 @@ def import_custom_nodes() -> dict:
             os.chdir(original_cwd)
             sys.path = original_sys_path
             print(f"Restored working directory: {original_cwd}")
+    else:
+        print(f"ComfyUI path not found or not a directory. comfyui_path: {comfyui_path}")
+        print("Trying alternative approach...")
+        
+        # Alternative: try to work from current directory
+        current_dir = os.getcwd()
+        print(f"Working from current directory: {current_dir}")
+        
+        # Check if we're already in a ComfyUI-like structure
+        if os.path.exists('nodes.py') and os.path.exists('custom_nodes'):
+            print("✓ Found nodes.py and custom_nodes in current directory")
+            
+            # Try manual import from current location
+            try:
+                custom_nodes_path = os.path.join(current_dir, 'custom_nodes')
+                sys.path.insert(0, custom_nodes_path)
+                print(f"Added {custom_nodes_path} to Python path")
+                
+                # List what's in the custom_nodes directory
+                print(f"Contents of {custom_nodes_path}: {os.listdir(custom_nodes_path)}")
+                
+                # Try importing videohelpersuite
+                try:
+                    import comfyui_videohelpersuite.videohelpersuite.nodes as vhs_nodes
+                    print(f"✓ Alternative import succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
+                    return vhs_nodes.NODE_CLASS_MAPPINGS
+                except ImportError as e:
+                    print(f"Alternative import failed: {e}")
+                    
+                    # Try the full path approach
+                    try:
+                        sys.path.insert(0, os.path.join(custom_nodes_path, 'comfyui-videohelpersuite'))
+                        import videohelpersuite.nodes as vhs_nodes
+                        print(f"✓ Full path import succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
+                        return vhs_nodes.NODE_CLASS_MAPPINGS
+                    except ImportError as e2:
+                        print(f"Full path import failed: {e2}")
+                        raise ImportError(f"All alternative approaches failed. Last error: {e2}")
+                        
+            except Exception as e:
+                print(f"Alternative approach failed: {e}")
+                import traceback
+                traceback.print_exc()
     
     print("No custom nodes could be loaded")
     return {}
