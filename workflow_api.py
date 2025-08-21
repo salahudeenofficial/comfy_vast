@@ -209,35 +209,77 @@ def import_custom_nodes() -> dict:
         if os.path.exists('nodes.py') and os.path.exists('custom_nodes'):
             print("✓ Found nodes.py and custom_nodes in current directory")
             
-            # Try manual import from current location
+            # Initialize ComfyUI environment first
             try:
-                custom_nodes_path = os.path.join(current_dir, 'custom_nodes')
-                sys.path.insert(0, custom_nodes_path)
-                print(f"Added {custom_nodes_path} to Python path")
+                print("Initializing ComfyUI environment...")
+                import asyncio
+                import execution
+                import server
                 
-                # List what's in the custom_nodes directory
-                print(f"Contents of {custom_nodes_path}: {os.listdir(custom_nodes_path)}")
+                # Create event loop
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 
-                # Try importing videohelpersuite
+                # Initialize PromptServer properly
+                server_instance = server.PromptServer(loop)
+                execution.PromptQueue(server_instance)
+                
+                print("✓ ComfyUI environment initialized")
+                
+                # Now try to import custom nodes
                 try:
-                    import comfyui_videohelpersuite.videohelpersuite.nodes as vhs_nodes
-                    print(f"✓ Alternative import succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
-                    return vhs_nodes.NODE_CLASS_MAPPINGS
-                except ImportError as e:
-                    print(f"Alternative import failed: {e}")
+                    custom_nodes_path = os.path.join(current_dir, 'custom_nodes')
+                    sys.path.insert(0, custom_nodes_path)
+                    print(f"Added {custom_nodes_path} to Python path")
                     
-                    # Try the full path approach
+                    # List what's in the custom_nodes directory
+                    print(f"Contents of {custom_nodes_path}: {os.listdir(custom_nodes_path)}")
+                    
+                    # Try importing videohelpersuite with proper server context
                     try:
-                        sys.path.insert(0, os.path.join(custom_nodes_path, 'comfyui-videohelpersuite'))
-                        import videohelpersuite.nodes as vhs_nodes
-                        print(f"✓ Full path import succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
+                        # Approach 1: Direct import
+                        import comfyui_videohelpersuite.videohelpersuite.nodes as vhs_nodes
+                        print(f"✓ Alternative import succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
                         return vhs_nodes.NODE_CLASS_MAPPINGS
-                    except ImportError as e2:
-                        print(f"Full path import failed: {e2}")
-                        raise ImportError(f"All alternative approaches failed. Last error: {e2}")
+                    except ImportError as e:
+                        print(f"Direct import failed: {e}")
                         
+                        # Approach 2: Try the full path approach
+                        try:
+                            sys.path.insert(0, os.path.join(custom_nodes_path, 'comfyui-videohelpersuite'))
+                            import videohelpersuite.nodes as vhs_nodes
+                            print(f"✓ Full path import succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
+                            return vhs_nodes.NODE_CLASS_MAPPINGS
+                        except ImportError as e2:
+                            print(f"Full path import failed: {e2}")
+                            
+                            # Approach 3: Try using init_extra_nodes
+                            try:
+                                print("Trying init_extra_nodes from current directory...")
+                                from nodes import init_extra_nodes
+                                loop.run_until_complete(init_extra_nodes())
+                                print("✓ init_extra_nodes completed")
+                                
+                                # Check if nodes are now available
+                                from nodes import NODE_CLASS_MAPPINGS
+                                if 'VHS_LoadVideo' in NODE_CLASS_MAPPINGS:
+                                    print("✓ VHS_LoadVideo found after init_extra_nodes")
+                                    return {}  # Return empty since nodes are already in main mappings
+                                else:
+                                    print("✗ VHS_LoadVideo still not found after init_extra_nodes")
+                                    raise ImportError("VHS_LoadVideo not found after init_extra_nodes")
+                                    
+                            except Exception as e3:
+                                print(f"init_extra_nodes approach failed: {e3}")
+                                raise ImportError(f"All alternative approaches failed. Last error: {e3}")
+                                
+                except Exception as e:
+                    print(f"Custom node import failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    
             except Exception as e:
-                print(f"Alternative approach failed: {e}")
+                print(f"ComfyUI environment initialization failed: {e}")
                 import traceback
                 traceback.print_exc()
     
