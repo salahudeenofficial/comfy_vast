@@ -135,21 +135,33 @@ def import_custom_nodes() -> None:
             print(f"Restored working directory: {original_cwd}")
 
 
-from nodes import (
-    NODE_CLASS_MAPPINGS,
-    CLIPTextEncode,
-    UNETLoader,
-    CLIPLoader,
-    LoraLoader,
-    KSampler,
-    VAEDecode,
-    VAELoader,
-    LoadImage,
-)
-
-
 def main():
+    # Load custom nodes FIRST, before importing NODE_CLASS_MAPPINGS
+    print("Loading custom nodes...")
     import_custom_nodes()
+    
+    # Now import NODE_CLASS_MAPPINGS after custom nodes are loaded
+    print("Importing node mappings...")
+    from nodes import (
+        NODE_CLASS_MAPPINGS,
+        CLIPTextEncode,
+        UNETLoader,
+        CLIPLoader,
+        LoraLoader,
+        KSampler,
+        VAEDecode,
+        VAELoader,
+        LoadImage,
+    )
+    
+    # Verify VHS_LoadVideo is available
+    if 'VHS_LoadVideo' not in NODE_CLASS_MAPPINGS:
+        print("ERROR: VHS_LoadVideo not found in NODE_CLASS_MAPPINGS!")
+        print("Available nodes:", list(NODE_CLASS_MAPPINGS.keys())[:20])
+        return
+    
+    print("✓ VHS_LoadVideo found, proceeding with workflow...")
+    
     with torch.inference_mode():
         vhs_loadvideo = NODE_CLASS_MAPPINGS["VHS_LoadVideo"]()
         vhs_loadvideo_1 = vhs_loadvideo.load_video(
