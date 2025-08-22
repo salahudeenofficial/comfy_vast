@@ -435,6 +435,12 @@ def main():
         
         print("✅ Step 1 completed: Model Loading")
         # === STEP 1 END: MODEL LOADING ===
+        
+        # Stop execution after step 1 for debugging purposes
+        print("\n🛑 STOPPING EXECUTION AFTER STEP 1 (MODEL LOADING)")
+        print("🔍 All model loading debugging information has been displayed above.")
+        print("📊 Check the monitoring data above to analyze model loading performance.")
+        return
 
         # === STEP 2 START: LORA APPLICATION ===
         print("2. Applying LoRA...")
