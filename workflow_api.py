@@ -6,6 +6,24 @@ import psutil
 from typing import Sequence, Mapping, Any, Union
 import torch
 
+# Direct imports for VHS functionality
+try:
+    # Add custom_nodes to path for direct imports
+    custom_nodes_path = os.path.join(os.path.dirname(__file__), 'custom_nodes', 'comfyui-videohelpersuite')
+    if custom_nodes_path not in sys.path:
+        sys.path.insert(0, custom_nodes_path)
+    
+    # Import the specific classes we need
+    from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
+    from videohelpersuite.utils import video_extensions
+    
+    print("✅ Successfully imported VHS video loading classes directly")
+    VHS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Warning: Could not import VHS classes directly: {e}")
+    print("   Will use fallback video loading approach")
+    VHS_AVAILABLE = False
+
 # Add monitoring and debugging utilities
 class ModelLoadingMonitor:
     """Comprehensive monitoring for model loading steps"""
@@ -381,54 +399,123 @@ def main():
     except Exception as e:
         pass
     
-    # Verify VHS_LoadVideo is available
+    # Check if custom nodes are available, but continue for debugging purposes
     if 'VHS_LoadVideo' not in NODE_CLASS_MAPPINGS:
-        print("ERROR: VHS_LoadVideo not found in NODE_CLASS_MAPPINGS!")
-        return
+        print("⚠️  WARNING: VHS_LoadVideo not found in NODE_CLASS_MAPPINGS!")
+        print("🔍 This is expected if custom nodes aren't loaded. Continuing with model loading debugging...")
+        print("📋 Available nodes: " + ", ".join(list(NODE_CLASS_MAPPINGS.keys())[:10]) + "...")
+    else:
+        print("✅ VHS_LoadVideo found in NODE_CLASS_MAPPINGS")
     
     with torch.inference_mode():
         # === STEP 1 START: MODEL LOADING ===
         print("1. Loading diffusion model components...")
         
-        # Load video and reference image
-        vhs_loadvideo = NODE_CLASS_MAPPINGS["VHS_LoadVideo"]()
-        vhs_loadvideo_1 = vhs_loadvideo.load_video(
-            video="safu.mp4",
-            force_rate=0,
-            custom_width=0,
-            custom_height=0,
-            frame_load_cap=0,
-            skip_first_frames=0,
-            select_every_nth=1,
-            format="Wan",
-        )
-
-        loadimage = LoadImage()
-        loadimage_4 = loadimage.load_image(image="safu.jpg")
+        # Load video and reference image using direct imports
+        if VHS_AVAILABLE:
+            print("🎥 Loading video using direct VHS imports...")
+            try:
+                # Use LoadVideoPath for direct file loading
+                video_loader = LoadVideoPath()
+                vhs_loadvideo_1 = video_loader.load_video(
+                    video="safu.mp4",
+                    force_rate=0,
+                    custom_width=0,
+                    custom_height=0,
+                    frame_load_cap=0,
+                    skip_first_frames=0,
+                    select_every_nth=1
+                )
+                print("✅ Video loaded successfully using direct VHS import")
+            except Exception as e:
+                print(f"❌ Error loading video with direct import: {e}")
+                vhs_loadvideo_1 = None
+        else:
+            print("⏭️  Skipping video loading (VHS not available)")
+            vhs_loadvideo_1 = None
+        
+        # Load reference image
+        try:
+            loadimage = LoadImage()
+            loadimage_4 = loadimage.load_image(image="safu.jpg")
+            print("✅ Reference image loaded successfully")
+            
+            # Debug: Show what was loaded
+            if loadimage_4:
+                print(f"   Image type: {type(loadimage_4)}")
+                if isinstance(loadimage_4, (list, tuple)) and len(loadimage_4) > 0:
+                    print(f"   Image data type: {type(loadimage_4[0])}")
+                    if hasattr(loadimage_4[0], 'shape'):
+                        print(f"   Image shape: {loadimage_4[0].shape}")
+        except Exception as e:
+            print(f"❌ Error loading reference image: {e}")
+            loadimage_4 = None
+        
+        # Debug: Show video loading results
+        if vhs_loadvideo_1:
+            print(f"   Video type: {type(vhs_loadvideo_1)}")
+            if isinstance(vhs_loadvideo_1, (list, tuple)) and len(vhs_loadvideo_1) > 0:
+                print(f"   Video data type: {type(vhs_loadvideo_1[0])}")
+                if hasattr(vhs_loadvideo_1[0], 'shape'):
+                    print(f"   Video shape: {vhs_loadvideo_1[0].shape}")
+                if len(vhs_loadvideo_1) > 1:
+                    print(f"   Frame count: {vhs_loadvideo_1[1]}")
+        else:
+            print("   Video: Not loaded")
 
         # === ENHANCED MODEL LOADING WITH COMPREHENSIVE DEBUGGING ===
         
+        # Check if model files exist
+        print("\n🔍 CHECKING MODEL FILES:")
+        model_files = {
+            "VAE": "vae.safetensors",
+            "UNET": "model.safetensors", 
+            "CLIP": "clip.safetensors"
+        }
+        
+        for model_name, filename in model_files.items():
+            if os.path.exists(filename):
+                print(f"   ✅ {model_name}: {filename} - EXISTS")
+            else:
+                print(f"   ❌ {model_name}: {filename} - NOT FOUND")
+                print(f"      Current working directory: {os.getcwd()}")
+                print(f"      Looking for: {os.path.abspath(filename)}")
+        
+        print()
+        
         # Load VAE with monitoring
-        model_monitor.start_monitoring("vae_loading")
-        vaeloader = VAELoader()
-        vaeloader_7 = vaeloader.load_vae(vae_name="vae.safetensors")
-        model_monitor.end_monitoring("vae_loading", vaeloader_7, "VAE")
+        try:
+            model_monitor.start_monitoring("vae_loading")
+            vaeloader = VAELoader()
+            vaeloader_7 = vaeloader.load_vae(vae_name="vae.safetensors")
+            model_monitor.end_monitoring("vae_loading", vaeloader_7, "VAE")
+        except Exception as e:
+            print(f"❌ ERROR loading VAE: {e}")
+            vaeloader_7 = None
 
         # Load UNET with monitoring
-        model_monitor.start_monitoring("unet_loading")
-        unetloader = UNETLoader()
-        unetloader_27 = unetloader.load_unet(
-            unet_name="model.safetensors", weight_dtype="default"
-        )
-        model_monitor.end_monitoring("unet_loading", unetloader_27, "UNET")
+        try:
+            model_monitor.start_monitoring("unet_loading")
+            unetloader = UNETLoader()
+            unetloader_27 = unetloader.load_unet(
+                unet_name="model.safetensors", weight_dtype="default"
+            )
+            model_monitor.end_monitoring("unet_loading", unetloader_27, "UNET")
+        except Exception as e:
+            print(f"❌ ERROR loading UNET: {e}")
+            unetloader_27 = None
 
         # Load CLIP with monitoring
-        model_monitor.start_monitoring("clip_loading")
-        cliploader = CLIPLoader()
-        cliploader_23 = cliploader.load_clip(
-            clip_name="clip.safetensors", type="wan", device="default"
-        )
-        model_monitor.end_monitoring("clip_loading", cliploader_23, "CLIP")
+        try:
+            model_monitor.start_monitoring("clip_loading")
+            cliploader = CLIPLoader()
+            cliploader_23 = cliploader.load_clip(
+                clip_name="clip.safetensors", type="wan", device="default"
+            )
+            model_monitor.end_monitoring("clip_loading", cliploader_23, "CLIP")
+        except Exception as e:
+            print(f"❌ ERROR loading CLIP: {e}")
+            cliploader_23 = None
         
         # Print comprehensive summary of all model loading steps
         model_monitor.print_summary()
