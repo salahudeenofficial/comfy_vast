@@ -1,0 +1,12 @@
+aim: trying to fix bugs in a different project i made to perform the same workflow but that code works with least dependency with comfyUI.to do that find a scheme to divide the code in the scripts to be split into similar steps so as to create various cheackpoints in the workflow so as to compare results mid pipeline.i have made a copy of the pipeline.py script in to this folder , there the pipeline is already split into a number of steps already.
+tasks:
+
+	1) analyse the steps in workflow_api and also analyse the workflow in pipeline.py
+	2) change the script workflow_api.py such that it exceute workflow only one time and there is no loop.
+	3) organise code such that start and end of important steps could be marked in both script , these 9  important steps are model loading(clip,vae,unet),LoRA Application,Text Encoding,Model Sampling,Initial Latent Generation,UNET Sampling,Video Trimming,VAE Decoding and Video Export.they must then be marked easy to see and differentiate and compare.   
+	4) find and impliment ways to monitor and debug issues with step 1.basis parameters used to compare it could be peak gpu memory usage,time and also any other step specific parameters.
+
+points to remeber:
+	) two types of behaviours are expected from you, one is anlysis mode and the other edit mode.
+	2) try to ask more questions rather than assuming state or context details.
+	

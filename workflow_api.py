@@ -1,8 +1,166 @@
 import os
 import random
 import sys
+import time
+import psutil
 from typing import Sequence, Mapping, Any, Union
 import torch
+
+# Add monitoring and debugging utilities
+class ModelLoadingMonitor:
+    """Comprehensive monitoring for model loading steps"""
+    
+    def __init__(self):
+        self.baseline_ram = None
+        self.baseline_gpu = None
+        self.monitoring_data = {}
+        self.step_start_time = None
+    
+    def start_monitoring(self, step_name):
+        """Start monitoring a specific step"""
+        self.step_start_time = time.time()
+        
+        # Record baseline memory state
+        self.baseline_ram = psutil.virtual_memory()
+        if torch.cuda.is_available():
+            self.baseline_gpu = {
+                'allocated': torch.cuda.memory_allocated() / 1024**2,
+                'reserved': torch.cuda.memory_reserved() / 1024**2
+            }
+        
+        print(f"\n🔍 STARTING MONITORING FOR: {step_name.upper()}")
+        print(f"   Baseline RAM: {self.baseline_ram.used / 1024**3:.1f} GB used, {self.baseline_ram.available / 1024**3:.1f} GB available")
+        if self.baseline_gpu:
+            print(f"   Baseline GPU: {self.baseline_gpu['allocated']:.1f} MB allocated, {self.baseline_gpu['reserved']:.1f} MB reserved")
+    
+    def end_monitoring(self, step_name, loader_result, model_type):
+        """End monitoring and display comprehensive debugging info"""
+        elapsed_time = time.time() - self.step_start_time
+        
+        # Get current memory state
+        current_ram = psutil.virtual_memory()
+        current_gpu = None
+        if torch.cuda.is_available():
+            current_gpu = {
+                'allocated': torch.cuda.memory_allocated() / 1024**2,
+                'reserved': torch.cuda.memory_reserved() / 1024**2
+            }
+        
+        # Calculate memory changes
+        ram_change = (current_ram.used - self.baseline_ram.used) / 1024**2  # MB
+        gpu_change = None
+        if self.baseline_gpu and current_gpu:
+            gpu_change = {
+                'allocated': current_gpu['allocated'] - self.baseline_gpu['allocated'],
+                'reserved': current_gpu['reserved'] - self.baseline_gpu['reserved']
+            }
+        
+        # Store monitoring data
+        self.monitoring_data[step_name] = {
+            'model_type': model_type,
+            'elapsed_time': elapsed_time,
+            'ram_change_mb': ram_change,
+            'gpu_change_mb': gpu_change,
+            'loader_result': loader_result
+        }
+        
+        # Display comprehensive debugging info
+        print(f"\n🔍 {step_name.upper()} DEBUGGING COMPLETE")
+        print("=" * 60)
+        
+        # Performance metrics
+        print(f"⏱️  PERFORMANCE:")
+        print(f"   Loading Time: {elapsed_time:.3f} seconds")
+        
+        # Memory analysis
+        print(f"💾 MEMORY ANALYSIS:")
+        print(f"   RAM Change: {ram_change:+.1f} MB")
+        print(f"   Current RAM: {current_ram.used / 1024**3:.1f} GB used, {current_ram.available / 1024**3:.1f} GB available")
+        
+        if gpu_change:
+            print(f"   GPU Change: {gpu_change['allocated']:+.1f} MB allocated, {gpu_change['reserved']:+.1f} MB reserved")
+            print(f"   Current GPU: {current_gpu['allocated']:.1f} MB allocated, {current_gpu['reserved']:.1f} MB reserved")
+        
+        # Model information extraction
+        print(f"🔧 MODEL INFORMATION:")
+        self._extract_model_info(loader_result, model_type)
+        
+        print("=" * 60)
+    
+    def _extract_model_info(self, loader_result, model_type):
+        """Extract detailed information from the loader result"""
+        try:
+            # Get the actual model from the loader result
+            if isinstance(loader_result, (list, tuple)) and len(loader_result) > 0:
+                model = loader_result[0]
+            else:
+                model = loader_result
+            
+            print(f"   Model Type: {model_type}")
+            print(f"   Result Type: {type(loader_result).__name__}")
+            print(f"   Model Class: {type(model).__name__}")
+            
+            # Extract device information
+            if hasattr(model, 'device'):
+                print(f"   Device: {model.device}")
+            elif hasattr(model, 'model') and hasattr(model.model, 'device'):
+                print(f"   Device: {model.model.device}")
+            
+            # Extract model size information
+            if hasattr(model, 'model'):
+                if hasattr(model.model, 'parameters'):
+                    param_count = sum(p.numel() for p in model.model.parameters())
+                    print(f"   Parameters: {param_count:,}")
+                if hasattr(model.model, 'state_dict'):
+                    state_dict = model.model.state_dict()
+                    print(f"   State Dict Keys: {len(state_dict)}")
+            
+            # Extract specific model attributes
+            if model_type == "VAE":
+                if hasattr(model, 'first_stage_model'):
+                    print(f"   Has First Stage Model: ✅")
+                if hasattr(model, 'scale_factor'):
+                    print(f"   Scale Factor: {model.scale_factor}")
+            
+            elif model_type == "UNET":
+                if hasattr(model, 'model'):
+                    if hasattr(model.model, 'num_blocks'):
+                        print(f"   Number of Blocks: {model.model.num_blocks}")
+                    if hasattr(model.model, 'in_channels'):
+                        print(f"   Input Channels: {model.model.in_channels}")
+            
+            elif model_type == "CLIP":
+                if hasattr(model, 'patcher'):
+                    print(f"   Has ModelPatcher: ✅")
+                if hasattr(model, 'max_length'):
+                    print(f"   Max Length: {model.max_length}")
+            
+        except Exception as e:
+            print(f"   ⚠️  Error extracting model info: {e}")
+    
+    def print_summary(self):
+        """Print summary of all monitored steps"""
+        print(f"\n📊 STEP 1 MODEL LOADING SUMMARY")
+        print("=" * 80)
+        
+        total_time = sum(data['elapsed_time'] for data in self.monitoring_data.values())
+        total_ram_change = sum(data['ram_change_mb'] for data in self.monitoring_data.values())
+        
+        print(f"⏱️  Total Loading Time: {total_time:.3f} seconds")
+        print(f"💾 Total RAM Change: {total_ram_change:+.1f} MB")
+        
+        for step_name, data in self.monitoring_data.items():
+            print(f"\n🔍 {step_name.upper()}:")
+            print(f"   Model: {data['model_type']}")
+            print(f"   Time: {data['elapsed_time']:.3f}s")
+            print(f"   RAM: {data['ram_change_mb']:+.1f} MB")
+            if data['gpu_change_mb']:
+                print(f"   GPU: {data['gpu_change_mb']['allocated']:+.1f} MB allocated")
+        
+        print("=" * 80)
+
+# Initialize the monitor
+model_monitor = ModelLoadingMonitor()
 
 
 def get_value_at_index(obj: Union[Sequence, Mapping], index: int) -> Any:
@@ -41,7 +199,6 @@ def find_path(name: str, path: str = None) -> str:
     # Check if the current directory contains the name
     if name in os.listdir(path):
         path_name = os.path.join(path, name)
-        print(f"{name} found: {path_name}")
         return path_name
 
     # Get the parent directory
@@ -63,12 +220,9 @@ def add_comfyui_directory_to_sys_path() -> None:
     if comfyui_path is not None and os.path.isdir(comfyui_path):
         # Add ComfyUI directory to Python path
         sys.path.insert(0, comfyui_path)
-        print(f"'{comfyui_path}' added to sys.path")
-
         # Change to the ComfyUI directory to ensure relative imports work correctly
         original_cwd = os.getcwd()
         os.chdir(comfyui_path)
-        print(f"Changed working directory from '{original_cwd}' to '{comfyui_path}'")
 
 
 def add_extra_model_paths() -> None:
@@ -78,17 +232,12 @@ def add_extra_model_paths() -> None:
     try:
         from main import load_extra_path_config
     except ImportError:
-        print(
-            "Could not import load_extra_path_config from main.py. Looking in utils.extra_config instead."
-        )
         from utils.extra_config import load_extra_path_config
 
     extra_model_paths = find_path("extra_model_paths.yaml")
 
     if extra_model_paths is not None:
         load_extra_path_config(extra_model_paths)
-    else:
-        print("Could not find the extra_model_paths config file.")
 
 
 add_comfyui_directory_to_sys_path()
@@ -101,22 +250,15 @@ def import_custom_nodes() -> dict:
     This function sets up a new asyncio event loop, initializes the PromptServer,
     creates a PromptQueue, and initializes the custom nodes.
     """
-    print(f"Current working directory: {os.getcwd()}")
-    print(f"Current sys.path: {sys.path[:3]}...")  # Show first 3 paths
-    
     # Ensure we're in the ComfyUI directory for imports to work correctly
     comfyui_path = find_path("ComfyUI")
-    print(f"find_path('ComfyUI') returned: {comfyui_path}")
-    
     if comfyui_path is not None and os.path.isdir(comfyui_path):
-        print(f"ComfyUI path found and is directory: {comfyui_path}")
         original_cwd = os.getcwd()
         original_sys_path = sys.path.copy()
 
         # Add ComfyUI directory to Python path and change directory
         sys.path.insert(0, comfyui_path)
         os.chdir(comfyui_path)
-        print(f"Changed to ComfyUI directory: {comfyui_path}")
 
         try:
             import asyncio
@@ -133,167 +275,48 @@ def import_custom_nodes() -> dict:
             execution.PromptQueue(server_instance)
 
             # Initializing custom nodes
-            print("Running init_extra_nodes...")
             loop.run_until_complete(init_extra_nodes())
             
         except Exception as e:
-            print(f"init_extra_nodes failed: {e}")
+            pass
         
         # Manual fallback: try to import and merge custom nodes directly
-        print("Attempting manual custom node import...")
         try:
             # Add custom_nodes to path
             custom_nodes_path = os.path.join(comfyui_path, 'custom_nodes')
             sys.path.insert(0, custom_nodes_path)
-            print(f"Added {custom_nodes_path} to Python path")
             
-            # List what's in the custom_nodes directory
-            print(f"Contents of {custom_nodes_path}: {os.listdir(custom_nodes_path)}")
-            
-            # Try different import approaches
+            # Try importing videohelpersuite
             try:
-                # Approach 1: Direct import
                 import comfyui_videohelpersuite.videohelpersuite.nodes as vhs_nodes
-                print(f"✓ Approach 1 succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
                 return vhs_nodes.NODE_CLASS_MAPPINGS
-            except ImportError as e1:
-                print(f"Approach 1 failed: {e1}")
+            except ImportError:
+                pass
                 
-                # Approach 2: Try with underscore
-                try:
-                    import comfyui_videohelpersuite.videohelpersuite.nodes as vhs_nodes
-                    print(f"✓ Approach 2 succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
-                    return vhs_nodes.NODE_CLASS_MAPPINGS
-                except ImportError as e2:
-                    print(f"Approach 2 failed: {e2}")
-                    
-                    # Approach 3: Try importing the package first
-                    try:
-                        import comfyui_videohelpersuite
-                        print("✓ Imported comfyui_videohelpersuite package")
-                        from comfyui_videohelpersuite.videohelpersuite.nodes import NODE_CLASS_MAPPINGS
-                        print(f"✓ Approach 3 succeeded: {len(NODE_CLASS_MAPPINGS)} nodes")
-                        return NODE_CLASS_MAPPINGS
-                    except ImportError as e3:
-                        print(f"Approach 3 failed: {e3}")
-                        
-                        # Approach 4: Try importing from the full path
-                        try:
-                            sys.path.insert(0, os.path.join(custom_nodes_path, 'comfyui-videohelpersuite'))
-                            import videohelpersuite.nodes as vhs_nodes
-                            print(f"✓ Approach 4 succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
-                            return vhs_nodes.NODE_CLASS_MAPPINGS
-                        except ImportError as e4:
-                            print(f"Approach 4 failed: {e4}")
-                            raise ImportError(f"All import approaches failed. Last error: {e4}")
-            
+            # Try the full path approach
+            try:
+                sys.path.insert(0, os.path.join(custom_nodes_path, 'comfyui-videohelpersuite'))
+                import videohelpersuite.nodes as vhs_nodes
+                return vhs_nodes.NODE_CLASS_MAPPINGS
+            except ImportError:
+                pass
+                
         except Exception as e:
-            print(f"Manual import failed: {e}")
-            import traceback
-            traceback.print_exc()
+            pass
         
         finally:
             # Restore original working directory and sys.path
             os.chdir(original_cwd)
             sys.path = original_sys_path
-            print(f"Restored working directory: {original_cwd}")
-    else:
-        print(f"ComfyUI path not found or not a directory. comfyui_path: {comfyui_path}")
-        print("Trying alternative approach...")
-        
-        # Alternative: try to work from current directory
-        current_dir = os.getcwd()
-        print(f"Working from current directory: {current_dir}")
-        
-        # Check if we're already in a ComfyUI-like structure
-        if os.path.exists('nodes.py') and os.path.exists('custom_nodes'):
-            print("✓ Found nodes.py and custom_nodes in current directory")
-            
-            # Initialize ComfyUI environment first
-            try:
-                print("Initializing ComfyUI environment...")
-                import asyncio
-                import execution
-                import server
-                
-                # Create event loop
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                # Initialize PromptServer properly
-                server_instance = server.PromptServer(loop)
-                execution.PromptQueue(server_instance)
-                
-                print("✓ ComfyUI environment initialized")
-                
-                # Now try to import custom nodes
-                try:
-                    custom_nodes_path = os.path.join(current_dir, 'custom_nodes')
-                    sys.path.insert(0, custom_nodes_path)
-                    print(f"Added {custom_nodes_path} to Python path")
-                    
-                    # List what's in the custom_nodes directory
-                    print(f"Contents of {custom_nodes_path}: {os.listdir(custom_nodes_path)}")
-                    
-                    # Try importing videohelpersuite with proper server context
-                    try:
-                        # Approach 1: Direct import
-                        import comfyui_videohelpersuite.videohelpersuite.nodes as vhs_nodes
-                        print(f"✓ Alternative import succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
-                        return vhs_nodes.NODE_CLASS_MAPPINGS
-                    except ImportError as e:
-                        print(f"Direct import failed: {e}")
-                        
-                        # Approach 2: Try the full path approach
-                        try:
-                            sys.path.insert(0, os.path.join(custom_nodes_path, 'comfyui-videohelpersuite'))
-                            import videohelpersuite.nodes as vhs_nodes
-                            print(f"✓ Full path import succeeded: {len(vhs_nodes.NODE_CLASS_MAPPINGS)} nodes")
-                            return vhs_nodes.NODE_CLASS_MAPPINGS
-                        except ImportError as e2:
-                            print(f"Full path import failed: {e2}")
-                            
-                            # Approach 3: Try using init_extra_nodes
-                            try:
-                                print("Trying init_extra_nodes from current directory...")
-                                from nodes import init_extra_nodes
-                                loop.run_until_complete(init_extra_nodes())
-                                print("✓ init_extra_nodes completed")
-                                
-                                # Check if nodes are now available
-                                from nodes import NODE_CLASS_MAPPINGS
-                                if 'VHS_LoadVideo' in NODE_CLASS_MAPPINGS:
-                                    print("✓ VHS_LoadVideo found after init_extra_nodes")
-                                    return {}  # Return empty since nodes are already in main mappings
-                                else:
-                                    print("✗ VHS_LoadVideo still not found after init_extra_nodes")
-                                    raise ImportError("VHS_LoadVideo not found after init_extra_nodes")
-                                    
-                            except Exception as e3:
-                                print(f"init_extra_nodes approach failed: {e3}")
-                                raise ImportError(f"All alternative approaches failed. Last error: {e3}")
-                                
-                except Exception as e:
-                    print(f"Custom node import failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    
-            except Exception as e:
-                print(f"ComfyUI environment initialization failed: {e}")
-                import traceback
-                traceback.print_exc()
     
-    print("No custom nodes could be loaded")
     return {}
 
 
 def main():
     # Load custom nodes FIRST, before importing NODE_CLASS_MAPPINGS
-    print("Loading custom nodes...")
     custom_node_mappings = import_custom_nodes()
     
     # Now import NODE_CLASS_MAPPINGS after custom nodes are loaded
-    print("Importing node mappings...")
     from nodes import (
         NODE_CLASS_MAPPINGS,
         CLIPTextEncode,
@@ -306,42 +329,12 @@ def main():
         LoadImage,
     )
     
-    # Debug: Check what core nodes we have
-    print(f"Core ComfyUI nodes loaded: {len(NODE_CLASS_MAPPINGS)}")
-    
-    # Check for specific core nodes that should be available
-    expected_core_nodes = [
-        'LoadImage', 'VAELoader', 'UNETLoader', 'CLIPLoader', 'KSampler', 
-        'VAEDecode', 'CLIPTextEncode', 'LoraLoader', 'SaveImage'
-    ]
-    
-    missing_core_nodes = []
-    for node in expected_core_nodes:
-        if node in NODE_CLASS_MAPPINGS:
-            print(f"✓ Core node {node} found")
-        else:
-            print(f"✗ Core node {node} missing")
-            missing_core_nodes.append(node)
-    
-    if missing_core_nodes:
-        print(f"⚠️  Missing core nodes: {missing_core_nodes}")
-        print("This suggests ComfyUI isn't fully initialized.")
-    
     # Manually merge custom nodes if they weren't merged automatically
     if custom_node_mappings:
-        print(f"Merging {len(custom_node_mappings)} custom nodes into main mappings...")
         NODE_CLASS_MAPPINGS.update(custom_node_mappings)
-        print(f"Total nodes after merge: {len(NODE_CLASS_MAPPINGS)}")
-        
-        # Show what custom nodes we have
-        print(f"Custom nodes available: {list(custom_node_mappings.keys())}")
     
     # Load comfy_extras nodes that contain the missing workflow nodes
-    print("Loading comfy_extras nodes...")
     try:
-        # Direct import approach - import all comfy_extras nodes
-        print("Importing comfy_extras nodes directly...")
-        
         # Import the specific modules we need
         import comfy_extras.nodes_wan
         import comfy_extras.nodes_model_advanced
@@ -353,7 +346,6 @@ def main():
         # Check if nodes_wan has NODE_CLASS_MAPPINGS (old style)
         if hasattr(comfy_extras.nodes_wan, 'NODE_CLASS_MAPPINGS'):
             wan_nodes = comfy_extras.nodes_wan.NODE_CLASS_MAPPINGS
-            print(f"Found {len(wan_nodes)} wan nodes (old style)")
         else:
             # New style - try to get nodes from ComfyExtension
             try:
@@ -373,113 +365,32 @@ def main():
                             if hasattr(schema, 'node_id'):
                                 wan_nodes[schema.node_id] = node_class
                     
-                    print(f"Found {len(wan_nodes)} wan nodes (new style)")
-                else:
-                    print("No WanExtension found in nodes_wan")
             except Exception as e:
-                print(f"Error processing new-style nodes_wan: {e}")
+                pass
         
         # Check if nodes_model_advanced has NODE_CLASS_MAPPINGS
         if hasattr(comfy_extras.nodes_model_advanced, 'NODE_CLASS_MAPPINGS'):
             model_nodes = comfy_extras.nodes_model_advanced.NODE_CLASS_MAPPINGS
-            print(f"Found {len(model_nodes)} model nodes")
-        else:
-            print("No NODE_CLASS_MAPPINGS found in nodes_model_advanced")
         
         # Merge them into the main NODE_CLASS_MAPPINGS
         if wan_nodes:
             NODE_CLASS_MAPPINGS.update(wan_nodes)
         if model_nodes:
             NODE_CLASS_MAPPINGS.update(model_nodes)
-        
-        print(f"Total nodes after comfy_extras merge: {len(NODE_CLASS_MAPPINGS)}")
-        
-        # Check if our missing nodes are now available
-        for node in ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']:
-            if node in NODE_CLASS_MAPPINGS:
-                print(f"✓ {node} now available from comfy_extras")
-            else:
-                print(f"✗ {node} still missing")
                 
     except Exception as e:
-        print(f"Error loading comfy_extras: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # Fallback: try to import all comfy_extras files
-        print("Trying fallback: importing all comfy_extras files...")
-        try:
-            import os
-            import importlib.util
-            
-            comfy_extras_dir = os.path.join(os.getcwd(), 'comfy_extras')
-            if os.path.exists(comfy_extras_dir):
-                for filename in os.listdir(comfy_extras_dir):
-                    if filename.endswith('.py') and filename.startswith('nodes_'):
-                        try:
-                            module_path = os.path.join(comfy_extras_dir, filename)
-                            spec = importlib.util.spec_from_file_location(filename[:-3], module_path)
-                            module = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(module)
-                            
-                            if hasattr(module, 'NODE_CLASS_MAPPINGS'):
-                                NODE_CLASS_MAPPINGS.update(module.NODE_CLASS_MAPPINGS)
-                                print(f"✓ Loaded {filename} with {len(module.NODE_CLASS_MAPPINGS)} nodes")
-                        except Exception as import_error:
-                            print(f"✗ Failed to load {filename}: {import_error}")
-                
-                print(f"Total nodes after fallback load: {len(NODE_CLASS_MAPPINGS)}")
-                
-                # Check again for our missing nodes
-                for node in ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']:
-                    if node in NODE_CLASS_MAPPINGS:
-                        print(f"✓ {node} now available after fallback")
-                    else:
-                        print(f"✗ {node} still missing after fallback")
-                        
-        except Exception as fallback_error:
-            print(f"Fallback also failed: {fallback_error}")
-    
-    # Check for the specific nodes your workflow needs
-    workflow_nodes = ['WanVaceToVideo', 'ModelSamplingSD3', 'TrimVideoLatent']
-    missing_workflow_nodes = []
-    for node in workflow_nodes:
-        if node in NODE_CLASS_MAPPINGS:
-            print(f"✓ Workflow node {node} found")
-        else:
-            print(f"✗ Workflow node {node} missing")
-            missing_workflow_nodes.append(node)
-    
-    if missing_workflow_nodes:
-        print(f"⚠️  Missing workflow nodes: {missing_workflow_nodes}")
-        print("These nodes are required for your workflow to run.")
-        
-        # Show what nodes we do have (first 20)
-        available_nodes = list(NODE_CLASS_MAPPINGS.keys())
-        print(f"Available nodes (first 20): {available_nodes[:20]}")
-        
-        # Check if these might be in a different namespace
-        print("\nSearching for similar node names...")
-        for node_name in available_nodes:
-            if any(keyword in node_name.lower() for keyword in ['wan', 'video', 'latent', 'sampling', 'model']):
-                print(f"  Related node found: {node_name}")
-        
-        return
+        pass
     
     # Verify VHS_LoadVideo is available
     if 'VHS_LoadVideo' not in NODE_CLASS_MAPPINGS:
         print("ERROR: VHS_LoadVideo not found in NODE_CLASS_MAPPINGS!")
-        print("Available nodes:", list(NODE_CLASS_MAPPINGS.keys())[:20])
-        
-        # Show what custom nodes we have
-        if custom_node_mappings:
-            print(f"\nCustom nodes available: {list(custom_node_mappings.keys())}")
-        
         return
     
-    print("✓ VHS_LoadVideo found, proceeding with workflow...")
-    
     with torch.inference_mode():
+        # === STEP 1 START: MODEL LOADING ===
+        print("1. Loading diffusion model components...")
+        
+        # Load video and reference image
         vhs_loadvideo = NODE_CLASS_MAPPINGS["VHS_LoadVideo"]()
         vhs_loadvideo_1 = vhs_loadvideo.load_video(
             video="safu.mp4",
@@ -495,19 +406,39 @@ def main():
         loadimage = LoadImage()
         loadimage_4 = loadimage.load_image(image="safu.jpg")
 
+        # === ENHANCED MODEL LOADING WITH COMPREHENSIVE DEBUGGING ===
+        
+        # Load VAE with monitoring
+        model_monitor.start_monitoring("vae_loading")
         vaeloader = VAELoader()
         vaeloader_7 = vaeloader.load_vae(vae_name="vae.safetensors")
+        model_monitor.end_monitoring("vae_loading", vaeloader_7, "VAE")
 
+        # Load UNET with monitoring
+        model_monitor.start_monitoring("unet_loading")
         unetloader = UNETLoader()
         unetloader_27 = unetloader.load_unet(
             unet_name="model.safetensors", weight_dtype="default"
         )
+        model_monitor.end_monitoring("unet_loading", unetloader_27, "UNET")
 
+        # Load CLIP with monitoring
+        model_monitor.start_monitoring("clip_loading")
         cliploader = CLIPLoader()
         cliploader_23 = cliploader.load_clip(
             clip_name="clip.safetensors", type="wan", device="default"
         )
+        model_monitor.end_monitoring("clip_loading", cliploader_23, "CLIP")
+        
+        # Print comprehensive summary of all model loading steps
+        model_monitor.print_summary()
+        
+        print("✅ Step 1 completed: Model Loading")
+        # === STEP 1 END: MODEL LOADING ===
 
+        # === STEP 2 START: LORA APPLICATION ===
+        print("2. Applying LoRA...")
+        
         loraloader = LoraLoader()
         loraloader_24 = loraloader.load_lora(
             lora_name="lora.safetensors",
@@ -516,7 +447,13 @@ def main():
             model=get_value_at_index(unetloader_27, 0),
             clip=get_value_at_index(cliploader_23, 0),
         )
+        
+        print("✅ Step 2 completed: LoRA Application")
+        # === STEP 2 END: LORA APPLICATION ===
 
+        # === STEP 3 START: TEXT ENCODING ===
+        print("3. Encoding text prompts...")
+        
         cliptextencode = CLIPTextEncode()
         cliptextencode_10 = cliptextencode.encode(
             text="a cinematic video.", clip=get_value_at_index(loraloader_24, 1)
@@ -526,68 +463,114 @@ def main():
             text="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走 , extra hands, extra arms, extra legs",
             clip=get_value_at_index(loraloader_24, 1),
         )
+        
+        print("✅ Step 3 completed: Text Encoding")
+        # === STEP 3 END: TEXT ENCODING ===
 
-        wanvacetovideo = NODE_CLASS_MAPPINGS["WanVaceToVideo"]()
+        # === STEP 4 START: MODEL SAMPLING ===
+        print("4. Applying ModelSamplingSD3...")
+        
         modelsamplingsd3 = NODE_CLASS_MAPPINGS["ModelSamplingSD3"]()
+        modelsamplingsd3_15 = modelsamplingsd3.patch(
+            shift=8.000000000000002, model=get_value_at_index(loraloader_24, 0)
+        )
+        
+        print("✅ Step 4 completed: Model Sampling")
+        # === STEP 4 END: MODEL SAMPLING ===
+
+        # === STEP 5 START: INITIAL LATENT GENERATION ===
+        print("5. Generating initial latents...")
+        
+        wanvacetovideo = NODE_CLASS_MAPPINGS["WanVaceToVideo"]()
+        wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
+            width=480,
+            height=832,
+            length=37,
+            batch_size=1,
+            strength=1,
+            positive=get_value_at_index(cliptextencode_10, 0),
+            negative=get_value_at_index(cliptextencode_11, 0),
+            vae=get_value_at_index(vaeloader_7, 0),
+            control_video=get_value_at_index(vhs_loadvideo_1, 0),
+            reference_image=get_value_at_index(loadimage_4, 0),
+        )
+        
+        print("✅ Step 5 completed: Initial Latent Generation")
+        # === STEP 5 END: INITIAL LATENT GENERATION ===
+
+        # === STEP 6 START: UNET SAMPLING ===
+        print("6. Running KSampler...")
+        
         ksampler = KSampler()
+        ksampler_14 = ksampler.sample(
+            seed=random.randint(1, 2**64),
+            steps=4,
+            cfg=1,
+            sampler_name="ddim",
+            scheduler="normal",
+            denoise=1,
+            model=get_value_at_index(modelsamplingsd3_15, 0),
+            positive=get_value_at_index(wanvacetovideo_13, 0),
+            negative=get_value_at_index(wanvacetovideo_13, 1),
+            latent_image=get_value_at_index(wanvacetovideo_13, 2),
+        )
+        
+        print("✅ Step 6 completed: UNET Sampling")
+        # === STEP 6 END: UNET SAMPLING ===
+
+        # === STEP 7 START: VIDEO TRIMMING ===
+        print("7. Trimming video latent...")
+        
         trimvideolatent = NODE_CLASS_MAPPINGS["TrimVideoLatent"]()
+        trimvideolatent_16 = trimvideolatent.EXECUTE_NORMALIZED(
+            trim_amount=get_value_at_index(wanvacetovideo_13, 3),
+            samples=get_value_at_index(ksampler_14, 0),
+        )
+        
+        print("✅ Step 7 completed: Video Trimming")
+        # === STEP 7 END: VIDEO TRIMMING ===
+
+        # === STEP 8 START: VAE DECODING ===
+        print("8. Decoding latents to frames...")
+        
         vaedecode = VAEDecode()
+        vaedecode_18 = vaedecode.decode(
+            samples=get_value_at_index(trimvideolatent_16, 0),
+            vae=get_value_at_index(vaeloader_7, 0),
+        )
+        
+        print("✅ Step 8 completed: VAE Decoding")
+        # === STEP 8 END: VAE DECODING ===
+
+        # === STEP 9 START: VIDEO EXPORT ===
+        print("9. Exporting video...")
+        
         vhs_videocombine = NODE_CLASS_MAPPINGS["VHS_VideoCombine"]()
-
-        for q in range(10):
-            wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
-                width=480,
-                height=832,
-                length=37,
-                batch_size=1,
-                strength=1,
-                positive=get_value_at_index(cliptextencode_10, 0),
-                negative=get_value_at_index(cliptextencode_11, 0),
-                vae=get_value_at_index(vaeloader_7, 0),
-                control_video=get_value_at_index(vhs_loadvideo_1, 0),
-                reference_image=get_value_at_index(loadimage_4, 0),
-            )
-
-            modelsamplingsd3_15 = modelsamplingsd3.patch(
-                shift=8.000000000000002, model=get_value_at_index(loraloader_24, 0)
-            )
-
-            ksampler_14 = ksampler.sample(
-                seed=random.randint(1, 2**64),
-                steps=4,
-                cfg=1,
-                sampler_name="ddim",
-                scheduler="normal",
-                denoise=1,
-                model=get_value_at_index(modelsamplingsd3_15, 0),
-                positive=get_value_at_index(wanvacetovideo_13, 0),
-                negative=get_value_at_index(wanvacetovideo_13, 1),
-                latent_image=get_value_at_index(wanvacetovideo_13, 2),
-            )
-
-            trimvideolatent_16 = trimvideolatent.EXECUTE_NORMALIZED(
-                trim_amount=get_value_at_index(wanvacetovideo_13, 3),
-                samples=get_value_at_index(ksampler_14, 0),
-            )
-
-            vaedecode_18 = vaedecode.decode(
-                samples=get_value_at_index(trimvideolatent_16, 0),
-                vae=get_value_at_index(vaeloader_7, 0),
-            )
-
-            vhs_videocombine_19 = vhs_videocombine.combine_video(
-                frame_rate=19,
-                loop_count=0,
-                filename_prefix="AnimateDiff",
-                format="video/h264-mp4",
-                pix_fmt="yuv420p",
-                crf=19,
-                save_metadata=True,
-                trim_to_audio=False,
-                pingpong=False,
-                save_output=True,
-                images=get_value_at_index(vaedecode_18, 0),
-            )
+        vhs_videocombine_19 = vhs_videocombine.combine_video(
+            frame_rate=19,
+            loop_count=0,
+            filename_prefix="AnimateDiff",
+            format="video/h264-mp4",
+            pix_fmt="yuv420p",
+            crf=19,
+            save_metadata=True,
+            trim_to_audio=False,
+            pingpong=False,
+            save_output=True,
+            images=get_value_at_index(vaedecode_18, 0),
+        )
+        
+        print("✅ Step 9 completed: Video Export")
+        print("🎉 All workflow steps completed successfully!")
+        
+        # === FINAL MONITORING SUMMARY ===
+        print("\n" + "="*80)
+        print("🔍 FINAL WORKFLOW MONITORING SUMMARY")
+        print("="*80)
+        model_monitor.print_summary()
+        print("="*80)
+        
+        # === STEP 9 END: VIDEO EXPORT ===
 
 
 if __name__ == "__main__":
