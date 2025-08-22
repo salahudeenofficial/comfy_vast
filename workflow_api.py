@@ -98,14 +98,14 @@ class ModelLoadingMonitor:
             print(f"   GPU Change: {gpu_change['allocated']:+.1f} MB allocated, {gpu_change['reserved']:+.1f} MB reserved")
             print(f"   Current GPU: {current_gpu['allocated']:.1f} MB allocated, {current_gpu['reserved']:.1f} MB reserved")
         
-        # Model information extraction
-        print(f"🔧 MODEL INFORMATION:")
-        self._extract_model_info(loader_result, model_type)
+        # Enhanced model information extraction
+        print(f"🔧 ENHANCED MODEL INFORMATION:")
+        self._extract_enhanced_model_info(loader_result, model_type)
         
         print("=" * 60)
     
-    def _extract_model_info(self, loader_result, model_type):
-        """Extract detailed information from the loader result"""
+    def _extract_enhanced_model_info(self, loader_result, model_type):
+        """Extract comprehensive model information including architecture, dimensions, and memory analysis"""
         try:
             # Get the actual model from the loader result
             if isinstance(loader_result, (list, tuple)) and len(loader_result) > 0:
@@ -118,42 +118,267 @@ class ModelLoadingMonitor:
             print(f"   Model Class: {type(model).__name__}")
             
             # Extract device information
-            if hasattr(model, 'device'):
-                print(f"   Device: {model.device}")
-            elif hasattr(model, 'model') and hasattr(model.model, 'device'):
-                print(f"   Device: {model.model.device}")
+            device_info = self._get_device_info(model)
+            print(f"   Device: {device_info}")
             
             # Extract model size information
-            if hasattr(model, 'model'):
-                if hasattr(model.model, 'parameters'):
-                    param_count = sum(p.numel() for p in model.model.parameters())
-                    print(f"   Parameters: {param_count:,}")
-                if hasattr(model.model, 'state_dict'):
-                    state_dict = model.model.state_dict()
-                    print(f"   State Dict Keys: {len(state_dict)}")
+            param_info = self._get_parameter_info(model)
+            print(f"   Parameters: {param_info['count']:,}")
+            print(f"   Model Size: {param_info['size_mb']:.1f} MB")
             
-            # Extract specific model attributes
+            # Extract state dict information
+            state_dict_info = self._get_state_dict_info(model)
+            print(f"   State Dict Keys: {state_dict_info['key_count']}")
+            
+            # Extract model-specific detailed information
             if model_type == "VAE":
-                if hasattr(model, 'first_stage_model'):
-                    print(f"   Has First Stage Model: ✅")
-                if hasattr(model, 'scale_factor'):
-                    print(f"   Scale Factor: {model.scale_factor}")
-            
+                self._extract_vae_details(model)
             elif model_type == "UNET":
-                if hasattr(model, 'model'):
-                    if hasattr(model.model, 'num_blocks'):
-                        print(f"   Number of Blocks: {model.model.num_blocks}")
-                    if hasattr(model.model, 'in_channels'):
-                        print(f"   Input Channels: {model.model.in_channels}")
-            
+                self._extract_unet_details(model)
             elif model_type == "CLIP":
-                if hasattr(model, 'patcher'):
-                    print(f"   Has ModelPatcher: ✅")
-                if hasattr(model, 'max_length'):
-                    print(f"   Max Length: {model.max_length}")
+                self._extract_clip_details(model)
+            
+            # Memory efficiency analysis
+            self._analyze_memory_efficiency(model, model_type, param_info)
             
         except Exception as e:
-            print(f"   ⚠️  Error extracting model info: {e}")
+            print(f"   ⚠️  Error extracting enhanced model info: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _get_device_info(self, model):
+        """Get comprehensive device information"""
+        try:
+            if hasattr(model, 'device'):
+                return str(model.device)
+            elif hasattr(model, 'model') and hasattr(model.model, 'device'):
+                return str(model.model.device)
+            elif hasattr(model, 'patcher') and hasattr(model.patcher, 'model'):
+                if hasattr(model.patcher.model, 'device'):
+                    return str(model.patcher.model.device)
+            return "unknown"
+        except:
+            return "unknown"
+    
+    def _get_parameter_info(self, model):
+        """Get detailed parameter information"""
+        try:
+            param_count = 0
+            if hasattr(model, 'parameters'):
+                param_count = sum(p.numel() for p in model.parameters())
+            elif hasattr(model, 'model') and hasattr(model.model, 'parameters'):
+                param_count = sum(p.numel() for p in model.model.parameters())
+            elif hasattr(model, 'patcher') and hasattr(model.patcher, 'model'):
+                if hasattr(model.patcher.model, 'parameters'):
+                    param_count = sum(p.numel() for p in model.patcher.model.parameters())
+            
+            # Estimate model size (assuming float32)
+            size_mb = (param_count * 4) / (1024 * 1024)
+            return {'count': param_count, 'size_mb': size_mb}
+        except:
+            return {'count': 0, 'size_mb': 0.0}
+    
+    def _get_state_dict_info(self, model):
+        """Get state dictionary information"""
+        try:
+            if hasattr(model, 'state_dict'):
+                state_dict = model.state_dict()
+                return {'key_count': len(state_dict), 'keys': list(state_dict.keys())}
+            elif hasattr(model, 'model') and hasattr(model.model, 'state_dict'):
+                state_dict = model.model.state_dict()
+                return {'key_count': len(state_dict), 'keys': list(state_dict.keys())}
+            return {'key_count': 0, 'keys': []}
+        except:
+            return {'key_count': 0, 'keys': []}
+    
+    def _extract_vae_details(self, model):
+        """Extract detailed VAE information"""
+        print(f"   🎨 VAE SPECIFIC DETAILS:")
+        
+        # Latent channels
+        if hasattr(model, 'latent_channels'):
+            print(f"     Latent Channels: {model.latent_channels}")
+        
+        # Downscale/upscale ratios
+        if hasattr(model, 'downscale_ratio'):
+            print(f"     Downscale Ratio: {model.downscale_ratio}")
+        if hasattr(model, 'upscale_ratio'):
+            print(f"     Upscale Ratio: {model.upscale_ratio}")
+        
+        # First stage model
+        if hasattr(model, 'first_stage_model'):
+            print(f"     Has First Stage Model: ✅")
+            first_stage = model.first_stage_model
+            if hasattr(first_stage, 'latent_channels'):
+                print(f"     First Stage Latent Channels: {first_stage.latent_channels}")
+        
+        # Scale factor
+        if hasattr(model, 'scale_factor'):
+            print(f"     Scale Factor: {model.scale_factor}")
+        
+        # Model type detection
+        self._detect_vae_type(model)
+    
+    def _extract_unet_details(self, model):
+        """Extract detailed UNET information"""
+        print(f"   🧠 UNET SPECIFIC DETAILS:")
+        
+        # Get the actual UNET model
+        unet_model = model
+        if hasattr(model, 'model'):
+            unet_model = model.model
+        
+        # Basic architecture info
+        if hasattr(unet_model, 'in_channels'):
+            print(f"     Input Channels: {unet_model.in_channels}")
+        if hasattr(unet_model, 'out_channels'):
+            print(f"     Output Channels: {unet_model.out_channels}")
+        if hasattr(unet_model, 'model_channels'):
+            print(f"     Model Channels: {unet_model.model_channels}")
+        
+        # Channel multipliers
+        if hasattr(unet_model, 'channel_mult'):
+            print(f"     Channel Multipliers: {unet_model.channel_mult}")
+        
+        # Residual blocks
+        if hasattr(unet_model, 'num_res_blocks'):
+            print(f"     Residual Blocks: {unet_model.num_res_blocks}")
+        
+        # Attention info
+        if hasattr(unet_model, 'num_heads'):
+            print(f"     Attention Heads: {unet_model.num_heads}")
+        if hasattr(unet_model, 'transformer_depth'):
+            print(f"     Transformer Depth: {unet_model.transformer_depth}")
+        
+        # Context dimension
+        if hasattr(unet_model, 'context_dim'):
+            print(f"     Context Dimension: {unet_model.context_dim}")
+        
+        # Model type detection
+        self._detect_unet_type(unet_model)
+    
+    def _extract_clip_details(self, model):
+        """Extract detailed CLIP information"""
+        print(f"   📝 CLIP SPECIFIC DETAILS:")
+        
+        # ModelPatcher info
+        if hasattr(model, 'patcher'):
+            print(f"     Has ModelPatcher: ✅")
+            patcher_model = model.patcher.model
+            
+            # Text model configuration
+            if hasattr(patcher_model, 'config'):
+                config = patcher_model.config
+                if hasattr(config, 'hidden_size'):
+                    print(f"     Hidden Size: {config.hidden_size}")
+                if hasattr(config, 'num_hidden_layers'):
+                    print(f"     Num Layers: {config.num_hidden_layers}")
+                if hasattr(config, 'num_attention_heads'):
+                    print(f"     Attention Heads: {config.num_attention_heads}")
+                if hasattr(config, 'vocab_size'):
+                    print(f"     Vocab Size: {config.vocab_size}")
+                if hasattr(config, 'max_position_embeddings'):
+                    print(f"     Max Position Embeddings: {config.max_position_embeddings}")
+                if hasattr(config, 'intermediate_size'):
+                    print(f"     Intermediate Size: {config.intermediate_size}")
+        
+        # Max length
+        if hasattr(model, 'max_length'):
+            print(f"     Max Length: {model.max_length}")
+        
+        # Model type detection
+        self._detect_clip_type(model)
+    
+    def _detect_vae_type(self, model):
+        """Detect VAE model type based on architecture"""
+        print(f"     🔍 VAE TYPE DETECTION:")
+        
+        # Check for SD vs SDXL vs SD3 characteristics
+        if hasattr(model, 'latent_channels'):
+            if model.latent_channels == 4:
+                print(f"       Detected: Standard Diffusion (SD/SDXL)")
+            elif model.latent_channels == 16:
+                print(f"       Detected: Stable Cascade (Stage C)")
+            else:
+                print(f"       Detected: Custom VAE ({model.latent_channels} channels)")
+        
+        # Check for video capabilities
+        if hasattr(model, 'first_stage_model'):
+            first_stage = model.first_stage_model
+            if hasattr(first_stage, 'video_kernel_size'):
+                print(f"       Capabilities: Video Support ✅")
+            else:
+                print(f"       Capabilities: Image Only")
+    
+    def _detect_unet_type(self, model):
+        """Detect UNET model type based on architecture"""
+        print(f"     🔍 UNET TYPE DETECTION:")
+        
+        # Check for SD vs SDXL vs SD3 vs WAN
+        if hasattr(model, 'context_dim'):
+            if model.context_dim == 768:
+                print(f"       Detected: SD 1.5")
+            elif model.context_dim == 1024:
+                print(f"       Detected: SD 2.1")
+            elif model.context_dim == 1280:
+                print(f"       Detected: SDXL")
+            elif model.context_dim == 2048:
+                print(f"       Detected: SD 3 / WAN")
+            else:
+                print(f"       Detected: Custom UNET (context_dim: {model.context_dim})")
+        
+        # Check for temporal capabilities
+        if hasattr(model, 'use_temporal_resblocks'):
+            if model.use_temporal_resblocks:
+                print(f"       Capabilities: Video/Temporal Support ✅")
+            else:
+                print(f"       Capabilities: Image Only")
+    
+    def _detect_clip_type(self, model):
+        """Detect CLIP model type based on architecture"""
+        print(f"     🔍 CLIP TYPE DETECTION:")
+        
+        # Check for different CLIP variants
+        if hasattr(model, 'patcher'):
+            patcher_model = model.patcher.model
+            if hasattr(patcher_model, 'config'):
+                config = patcher_model.config
+                if hasattr(config, 'hidden_size'):
+                    if config.hidden_size == 768:
+                        print(f"       Detected: SD 1.5 CLIP")
+                    elif config.hidden_size == 1024:
+                        print(f"       Detected: SD 2.1 CLIP")
+                    elif config.hidden_size == 1280:
+                        print(f"       Detected: SDXL CLIP")
+                    elif config.hidden_size == 2048:
+                        print(f"       Detected: SD 3 / WAN T5")
+                    else:
+                        print(f"       Detected: Custom CLIP (hidden_size: {config.hidden_size})")
+    
+    def _analyze_memory_efficiency(self, model, model_type, param_info):
+        """Analyze memory efficiency and provide recommendations"""
+        print(f"   💡 MEMORY EFFICIENCY ANALYSIS:")
+        
+        # Parameter efficiency
+        if param_info['count'] > 0:
+            if param_info['count'] > 1000000000:  # 1B+ parameters
+                print(f"     Model Size: Large ({param_info['size_mb']:.1f} MB)")
+                print(f"     Recommendation: Consider GPU offloading for memory efficiency")
+            elif param_info['count'] > 500000000:  # 500M+ parameters
+                print(f"     Model Size: Medium ({param_info['size_mb']:.1f} MB)")
+                print(f"     Recommendation: Monitor memory usage during operations")
+            else:
+                print(f"     Model Size: Small ({param_info['size_mb']:.1f} MB)")
+                print(f"     Recommendation: Should fit comfortably in memory")
+        
+        # Device placement efficiency
+        device_info = self._get_device_info(model)
+        if device_info == "cpu":
+            print(f"     Device Placement: CPU (memory efficient, slower inference)")
+        elif device_info == "cuda:0":
+            print(f"     Device Placement: GPU (faster inference, higher memory usage)")
+        else:
+            print(f"     Device Placement: {device_info}")
     
     def print_summary(self):
         """Print summary of all monitored steps"""
