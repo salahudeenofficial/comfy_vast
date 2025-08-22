@@ -15,7 +15,6 @@ try:
     
     # Import the specific classes we need
     from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
-    from videohelpersuite.utils import video_extensions
     
     print("✅ Successfully imported VHS video loading classes directly")
     VHS_AVAILABLE = True
@@ -250,12 +249,19 @@ def add_extra_model_paths() -> None:
     try:
         from main import load_extra_path_config
     except ImportError:
-        from utils.extra_config import load_extra_path_config
+        try:
+            from utils.extra_config import load_extra_path_config
+        except ImportError:
+            print("⚠️  Warning: Could not import extra_config, skipping extra model paths")
+            return
 
     extra_model_paths = find_path("extra_model_paths.yaml")
 
     if extra_model_paths is not None:
-        load_extra_path_config(extra_model_paths)
+        try:
+            load_extra_path_config(extra_model_paths)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load extra model paths: {e}")
 
 
 add_comfyui_directory_to_sys_path()
@@ -320,6 +326,7 @@ def import_custom_nodes() -> dict:
                 pass
                 
         except Exception as e:
+            print(f"⚠️  Warning: Custom node import fallback failed: {e}")
             pass
         
         finally:
@@ -331,21 +338,31 @@ def import_custom_nodes() -> dict:
 
 
 def main():
+    print("🔍 Starting main function...")
+    
     # Load custom nodes FIRST, before importing NODE_CLASS_MAPPINGS
+    print("🔍 Attempting to import custom nodes...")
     custom_node_mappings = import_custom_nodes()
+    print(f"🔍 Custom node mappings result: {type(custom_node_mappings)}")
     
     # Now import NODE_CLASS_MAPPINGS after custom nodes are loaded
-    from nodes import (
-        NODE_CLASS_MAPPINGS,
-        CLIPTextEncode,
-        UNETLoader,
-        CLIPLoader,
-        LoraLoader,
-        KSampler,
-        VAEDecode,
-        VAELoader,
-        LoadImage,
-    )
+    print("🔍 Importing core ComfyUI nodes...")
+    try:
+        from nodes import (
+            NODE_CLASS_MAPPINGS,
+            CLIPTextEncode,
+            UNETLoader,
+            CLIPLoader,
+            LoraLoader,
+            KSampler,
+            VAEDecode,
+            VAELoader,
+            LoadImage,
+        )
+        print("✅ Successfully imported core ComfyUI nodes")
+    except ImportError as e:
+        print(f"❌ ERROR importing core nodes: {e}")
+        return
     
     # Manually merge custom nodes if they weren't merged automatically
     if custom_node_mappings:
@@ -400,6 +417,9 @@ def main():
         pass
     
     # Check if custom nodes are available, but continue for debugging purposes
+    print(f"🔍 Checking NODE_CLASS_MAPPINGS...")
+    print(f"🔍 Total available nodes: {len(NODE_CLASS_MAPPINGS)}")
+    
     if 'VHS_LoadVideo' not in NODE_CLASS_MAPPINGS:
         print("⚠️  WARNING: VHS_LoadVideo not found in NODE_CLASS_MAPPINGS!")
         print("🔍 This is expected if custom nodes aren't loaded. Continuing with model loading debugging...")
