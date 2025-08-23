@@ -45,6 +45,14 @@ class ModelLoadingMonitor:
                 'reserved': torch.cuda.memory_reserved() / 1024**2
             }
         
+        # Initialize peak memory tracking
+        self.peak_memory = {
+            'ram_peak_mb': self.baseline_ram.used / (1024**2),
+            'gpu_allocated_peak_mb': self.baseline_gpu['allocated'] if self.baseline_gpu else 0,
+            'gpu_reserved_peak_mb': self.baseline_gpu['reserved'] if self.baseline_gpu else 0,
+            'peak_timestamps': []
+        }
+        
         print(f"\n🔍 STARTING MONITORING FOR: {step_name.upper()}")
         print(f"   Baseline RAM: {self.baseline_ram.used / 1024**3:.1f} GB used, {self.baseline_ram.available / 1024**3:.1f} GB available")
         if self.baseline_gpu:
@@ -103,6 +111,52 @@ class ModelLoadingMonitor:
         self._extract_enhanced_model_info(loader_result, model_type)
         
         print("=" * 60)
+    
+    def update_peak_memory(self):
+        """Update peak memory values - call this during monitoring to track peaks"""
+        try:
+            # Update RAM peak
+            current_ram = psutil.virtual_memory()
+            current_ram_mb = current_ram.used / (1024**2)
+            if current_ram_mb > self.peak_memory['ram_peak_mb']:
+                self.peak_memory['ram_peak_mb'] = current_ram_mb
+                self.peak_memory['peak_timestamps'].append({
+                    'type': 'ram',
+                    'value_mb': current_ram_mb,
+                    'timestamp': time.time() - self.step_start_time
+                })
+            
+            # Update GPU peak
+            if torch.cuda.is_available():
+                current_gpu_allocated = torch.cuda.memory_allocated() / (1024**2)
+                current_gpu_reserved = torch.cuda.memory_reserved() / (1024**2)
+                
+                if current_gpu_allocated > self.peak_memory['gpu_allocated_peak_mb']:
+                    self.peak_memory['gpu_allocated_peak_mb'] = current_gpu_allocated
+                    self.peak_memory['peak_timestamps'].append({
+                        'type': 'gpu_allocated',
+                        'value_mb': current_gpu_allocated,
+                        'timestamp': time.time() - self.step_start_time
+                    })
+                
+                if current_gpu_reserved > self.peak_memory['gpu_reserved_peak_mb']:
+                    self.peak_memory['gpu_reserved_peak_mb'] = current_gpu_reserved
+                    self.peak_memory['peak_timestamps'].append({
+                        'type': 'gpu_reserved',
+                        'value_mb': current_gpu_reserved,
+                        'timestamp': time.time() - self.step_start_time
+                    })
+        except Exception as e:
+            print(f"⚠️  Warning: Peak memory update failed: {e}")
+    
+    def get_peak_memory_summary(self):
+        """Get summary of peak memory usage during monitoring"""
+        return {
+            'ram_peak_mb': self.peak_memory['ram_peak_mb'],
+            'gpu_allocated_peak_mb': self.peak_memory['gpu_allocated_peak_mb'],
+            'gpu_reserved_peak_mb': self.peak_memory['gpu_reserved_peak_mb'],
+            'peak_timestamps': self.peak_memory['peak_timestamps']
+        }
     
     def _extract_enhanced_model_info(self, loader_result, model_type):
         """Extract comprehensive model information including architecture, dimensions, and memory analysis"""
@@ -423,25 +477,41 @@ class ModelLoadingMonitor:
     
     def capture_lora_baseline(self, unet_model, clip_model):
         """Capture baseline state before LoRA application"""
+        # Capture RAM baseline
+        ram_baseline = psutil.virtual_memory()
+        
+        # Capture GPU baseline
+        gpu_baseline = None
+        if torch.cuda.is_available():
+            gpu_baseline = {
+                'allocated': torch.cuda.memory_allocated(),
+                'reserved': torch.cuda.memory_reserved(),
+                'total': torch.cuda.get_device_properties(0).total_memory,
+                'device_name': torch.cuda.get_device_name(0)
+            }
+        
         baseline = {
             'timestamp': time.time(),
+            'ram': {
+                'used_mb': ram_baseline.used / (1024**2),
+                'available_mb': ram_baseline.available / (1024**2),
+                'total_mb': ram_baseline.total / (1024**2),
+                'percent_used': ram_baseline.percent
+            },
+            'gpu': gpu_baseline,
             'unet': {
                 'model_id': id(unet_model),
                 'class': type(unet_model).__name__,
                 'device': getattr(unet_model, 'device', None),
                 'patches_count': len(getattr(unet_model, 'patches', {})),
-                'patches_uuid': getattr(unet_model, 'patches_uuid', None),
-                'memory_allocated': torch.cuda.memory_allocated() if torch.cuda.is_available() else 0,
-                'memory_reserved': torch.cuda.memory_reserved() if torch.cuda.is_available() else 0
+                'patches_uuid': getattr(unet_model, 'patches_uuid', None)
             },
             'clip': {
                 'model_id': id(clip_model),
                 'class': type(clip_model).__name__,
                 'device': getattr(clip_model, 'device', None),
                 'patcher_patches_count': len(getattr(clip_model.patcher, 'patches', {})) if hasattr(clip_model, 'patcher') else 0,
-                'patcher_patches_uuid': getattr(clip_model.patcher, 'patches_uuid', None) if hasattr(clip_model, 'patcher') else None,
-                'memory_allocated': torch.cuda.memory_allocated() if torch.cuda.is_available() else 0,
-                'memory_reserved': torch.cuda.memory_reserved() if torch.cuda.is_available() else 0
+                'patcher_patches_uuid': getattr(clip_model.patcher, 'patches_uuid', None) if hasattr(clip_model, 'patcher') else None
             }
         }
         return baseline
@@ -453,7 +523,7 @@ class ModelLoadingMonitor:
         model_cloned = original_model is not modified_model
         model_class_changed = type(original_model) != type(modified_model)
         
-        # 2. ModelPatcher Changes (for UNET)
+        # 2. ModelPatcher Changes - handle different model structures
         original_patch_count = 0
         modified_patch_count = 0
         patches_added = 0
@@ -461,15 +531,32 @@ class ModelLoadingMonitor:
         modified_uuid = None
         uuid_changed = False
         
-        if hasattr(original_model, 'patches') and hasattr(modified_model, 'patches'):
+        # Get original patch count
+        if hasattr(original_model, 'patches'):
             original_patch_count = len(original_model.patches)
+        elif hasattr(original_model, 'patcher') and hasattr(original_model.patcher, 'patches'):
+            original_patch_count = len(original_model.patcher.patches)
+        
+        # Get modified patch count
+        if hasattr(modified_model, 'patches'):
             modified_patch_count = len(modified_model.patches)
-            patches_added = modified_patch_count - original_patch_count
+        elif hasattr(modified_model, 'patcher') and hasattr(modified_model.patcher, 'patches'):
+            modified_patch_count = len(modified_model.patcher.patches)
+        
+        patches_added = modified_patch_count - original_patch_count
+        
+        # 3. Patch UUID Changes
+        if hasattr(original_model, 'patches_uuid'):
+            original_uuid = original_model.patches_uuid
+        elif hasattr(original_model, 'patcher') and hasattr(original_model.patcher, 'patches_uuid'):
+            original_uuid = original_model.patcher.patches_uuid
             
-            # 3. Patch UUID Changes
-            original_uuid = getattr(original_model, 'patches_uuid', None)
-            modified_uuid = getattr(modified_model, 'patches_uuid', None)
-            uuid_changed = original_uuid != modified_uuid
+        if hasattr(modified_model, 'patches_uuid'):
+            modified_uuid = modified_model.patches_uuid
+        elif hasattr(modified_model, 'patcher') and hasattr(modified_model.patcher, 'patches_uuid'):
+            modified_uuid = modified_model.patcher.patches_uuid
+        
+        uuid_changed = original_uuid != modified_uuid
         
         return {
             'model_cloned': model_cloned,
@@ -477,7 +564,9 @@ class ModelLoadingMonitor:
             'patches_added': patches_added,
             'uuid_changed': uuid_changed,
             'original_patch_count': original_patch_count,
-            'modified_patch_count': modified_patch_count
+            'modified_patch_count': modified_patch_count,
+            'original_model_type': type(original_model).__name__,
+            'modified_model_type': type(modified_model).__name__
         }
     
     def track_weight_modifications(self, original_model, modified_model, model_type):
@@ -534,14 +623,29 @@ class ModelLoadingMonitor:
     def analyze_lora_patches(self, modified_model, model_type):
         """Analyze the specific LoRA patches applied to the model"""
         
-        if not hasattr(modified_model, 'patches'):
-            return {'error': 'Model has no patches attribute'}
+        # Handle different model structures
+        patches = {}
+        model_structure = "unknown"
         
-        patches = modified_model.patches
+        if hasattr(modified_model, 'patches'):
+            patches = modified_model.patches
+            model_structure = "direct_patches"
+        elif hasattr(modified_model, 'patcher') and hasattr(modified_model.patcher, 'patches'):
+            patches = modified_model.patcher.patches
+            model_structure = "patcher_patches"
+        else:
+            return {
+                'error': f'Model has no accessible patches attribute. Model type: {type(modified_model).__name__}',
+                'model_structure': model_structure,
+                'available_attrs': [attr for attr in dir(modified_model) if not attr.startswith('_')][:10]
+            }
+        
         lora_patches = {}
+        total_patches = 0
         
         for key, patch_list in patches.items():
             if patch_list:  # If patches exist for this key
+                total_patches += len(patch_list)
                 # Each patch is a tuple: (strength_patch, patch_data, strength_model, offset, function)
                 for patch in patch_list:
                     if len(patch) >= 2:
@@ -566,8 +670,11 @@ class ModelLoadingMonitor:
         
         return {
             'total_patched_keys': len(lora_patches),
+            'total_patches': total_patches,
             'patch_details': lora_patches,
-            'model_type': model_type
+            'model_type': model_type,
+            'model_structure': model_structure,
+            'raw_patches_count': len(patches)
         }
     
     def track_model_placement_changes(self, original_model, modified_model, model_type):
@@ -613,17 +720,53 @@ class ModelLoadingMonitor:
     def calculate_memory_change(self, baseline_info, current_model):
         """Calculate memory usage changes for a model"""
         try:
-            current_allocated = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
-            current_reserved = torch.cuda.memory_reserved() if torch.cuda.is_available() else 0
+            # Get current RAM state
+            current_ram = psutil.virtual_memory()
             
-            allocated_change = current_allocated - baseline_info['memory_allocated']
-            reserved_change = current_reserved - baseline_info['memory_reserved']
+            # Get current GPU state
+            current_gpu = None
+            if torch.cuda.is_available():
+                current_gpu = {
+                    'allocated': torch.cuda.memory_allocated(),
+                    'reserved': torch.cuda.memory_reserved(),
+                    'total': torch.cuda.get_device_properties(0).total_memory
+                }
+            
+            # Calculate RAM changes
+            ram_changes = {
+                'used_change_mb': (current_ram.used - baseline_info['ram']['used_mb'] * (1024**2)) / (1024**2),
+                'available_change_mb': (current_ram.available - baseline_info['ram']['available_mb'] * (1024**2)) / (1024**2),
+                'current_used_mb': current_ram.used / (1024**2),
+                'current_available_mb': current_ram.available / (1024**2),
+                'current_total_mb': current_ram.total / (1024**2),
+                'current_percent_used': current_ram.percent,
+                'baseline_used_mb': baseline_info['ram']['used_mb'],
+                'baseline_available_mb': baseline_info['ram']['available_mb'],
+                'baseline_percent_used': baseline_info['ram']['percent_used']
+            }
+            
+            # Calculate GPU changes
+            gpu_changes = None
+            if current_gpu and baseline_info['gpu']:
+                allocated_change = current_gpu['allocated'] - baseline_info['gpu']['allocated']
+                reserved_change = current_gpu['reserved'] - baseline_info['gpu']['reserved']
+                
+                gpu_changes = {
+                    'allocated_change_mb': allocated_change / (1024**2),
+                    'reserved_change_mb': reserved_change / (1024**2),
+                    'current_allocated_mb': current_gpu['allocated'] / (1024**2),
+                    'current_reserved_mb': current_gpu['reserved'] / (1024**2),
+                    'current_total_mb': current_gpu['total'] / (1024**2),
+                    'baseline_allocated_mb': baseline_info['gpu']['allocated'] / (1024**2),
+                    'baseline_reserved_mb': baseline_info['gpu']['reserved'] / (1024**2),
+                    'baseline_total_mb': baseline_info['gpu']['total'] / (1024**2),
+                    'allocated_change_pct': (allocated_change / baseline_info['gpu']['allocated'] * 100) if baseline_info['gpu']['allocated'] > 0 else 0,
+                    'reserved_change_pct': (reserved_change / baseline_info['gpu']['reserved'] * 100) if baseline_info['gpu']['reserved'] > 0 else 0
+                }
             
             return {
-                'allocated_change_mb': allocated_change / (1024**2),
-                'reserved_change_mb': reserved_change / (1024**2),
-                'current_allocated_mb': current_allocated / (1024**2),
-                'current_reserved_mb': current_reserved / (1024**2)
+                'ram': ram_changes,
+                'gpu': gpu_changes
             }
         except Exception as e:
             return {'error': f'Memory calculation failed: {e}'}
@@ -656,14 +799,8 @@ class ModelLoadingMonitor:
                     baseline['clip'], modified_clip, 'CLIP'
                 )
             },
-            'memory_impact': {
-                'unet_memory_change': self.calculate_memory_change(
-                    baseline['unet'], modified_unet
-                ),
-                'clip_memory_change': self.calculate_memory_change(
-                    baseline['clip'], modified_clip
-                )
-            }
+            'memory_impact': self.calculate_memory_change(baseline, modified_unet),
+            'peak_memory': self.get_peak_memory_summary()
         }
         
         return analysis
@@ -714,13 +851,29 @@ class ModelLoadingMonitor:
         
         # Memory Impact
         print(f"\n💾 MEMORY IMPACT:")
-        unet_memory = analysis['memory_impact']['unet_memory_change']
-        clip_memory = analysis['memory_impact']['clip_memory_change']
+        memory_impact = analysis['memory_impact']
         
-        if 'error' not in unet_memory:
-            print(f"   UNET Memory Change: {unet_memory['allocated_change_mb']:+.1f} MB allocated, {unet_memory['reserved_change_mb']:+.1f} MB reserved")
-        if 'error' not in clip_memory:
-            print(f"   CLIP Memory Change: {clip_memory['allocated_change_mb']:+.1f} MB allocated, {clip_memory['reserved_change_mb']:+.1f} MB reserved")
+        if 'error' not in memory_impact:
+            # RAM Changes
+            if 'ram' in memory_impact:
+                ram = memory_impact['ram']
+                print(f"\n   🖥️  RAM CHANGES:")
+                print(f"      Used: {ram['used_change_mb']:+.1f} MB ({ram['baseline_used_mb']:.1f} → {ram['current_used_mb']:.1f} MB)")
+                print(f"      Available: {ram['available_change_mb']:+.1f} MB ({ram['baseline_available_mb']:.1f} → {ram['current_available_mb']:.1f} MB)")
+                print(f"      Total: {ram['current_total_mb']:.1f} MB")
+                print(f"      Usage: {ram['baseline_percent_used']:.1f}% → {ram['current_percent_used']:.1f}%")
+            
+            # GPU Changes
+            if 'gpu' in memory_impact and memory_impact['gpu']:
+                gpu = memory_impact['gpu']
+                print(f"\n   🎮 GPU CHANGES:")
+                print(f"      Allocated: {gpu['allocated_change_mb']:+.1f} MB ({gpu['baseline_allocated_mb']:.1f} → {gpu['current_allocated_mb']:.1f} MB)")
+                print(f"      Reserved: {gpu['reserved_change_mb']:+.1f} MB ({gpu['baseline_reserved_mb']:.1f} → {gpu['current_reserved_mb']:.1f} MB)")
+                print(f"      Total VRAM: {gpu['current_total_mb']:.1f} MB")
+                print(f"      Allocated Change: {gpu['allocated_change_pct']:+.1f}%")
+                print(f"      Reserved Change: {gpu['reserved_change_pct']:+.1f}%")
+        else:
+            print(f"   ❌ Memory calculation failed: {memory_impact['error']}")
         
         print("=" * 80)
 
@@ -1053,40 +1206,43 @@ def main():
         
         # Load VAE with monitoring
         try:
-            model_monitor.start_monitoring("vae_loading")
+            # model_monitor.start_monitoring("vae_loading")
             vaeloader = VAELoader()
             vaeloader_7 = vaeloader.load_vae(vae_name="vae.safetensors")
-            model_monitor.end_monitoring("vae_loading", vaeloader_7, "VAE")
+            # model_monitor.end_monitoring("vae_loading", vaeloader_7, "VAE")
+            print("✅ VAE loaded successfully")
         except Exception as e:
             print(f"❌ ERROR loading VAE: {e}")
             vaeloader_7 = None
 
         # Load UNET with monitoring
         try:
-            model_monitor.start_monitoring("unet_loading")
+            # model_monitor.start_monitoring("unet_loading")
             unetloader = UNETLoader()
             unetloader_27 = unetloader.load_unet(
                 unet_name="model.safetensors", weight_dtype="default"
             )
-            model_monitor.end_monitoring("unet_loading", unetloader_27, "UNET")
+            # model_monitor.end_monitoring("unet_loading", unetloader_27, "UNET")
+            print("✅ UNET loaded successfully")
         except Exception as e:
             print(f"❌ ERROR loading UNET: {e}")
             unetloader_27 = None
 
         # Load CLIP with monitoring
         try:
-            model_monitor.start_monitoring("clip_loading")
+            # model_monitor.start_monitoring("clip_loading")
             cliploader = CLIPLoader()
             cliploader_23 = cliploader.load_clip(
                 clip_name="clip.safetensors", type="wan", device="default"
             )
-            model_monitor.end_monitoring("clip_loading", cliploader_23, "CLIP")
+            # model_monitor.end_monitoring("clip_loading", cliploader_23, "CLIP")
+            print("✅ CLIP loaded successfully")
         except Exception as e:
             print(f"❌ ERROR loading CLIP: {e}")
             cliploader_23 = None
         
         # Print comprehensive summary of all model loading steps
-        model_monitor.print_summary()
+        # model_monitor.print_summary()
         
         print("✅ Step 1 completed: Model Loading")
         # === STEP 1 END: MODEL LOADING ===
@@ -1120,9 +1276,23 @@ def main():
         print(f"   ✅ UNET Baseline captured - ID: {lora_baseline['unet']['model_id']}, Patches: {lora_baseline['unet']['patches_count']}")
         print(f"   ✅ CLIP Baseline captured - ID: {lora_baseline['clip']['model_id']}, Patches: {lora_baseline['clip']['patcher_patches_count']}")
         
+        # Display baseline memory information
+        print(f"\n   💾 BASELINE MEMORY STATE:")
+        print(f"      🖥️  RAM: {lora_baseline['ram']['used_mb']:.1f} MB used / {lora_baseline['ram']['total_mb']:.1f} MB total ({lora_baseline['ram']['percent_used']:.1f}%)")
+        if lora_baseline['gpu']:
+            print(f"      🎮 GPU: {lora_baseline['gpu']['allocated'] / (1024**2):.1f} MB allocated / {lora_baseline['gpu']['total'] / (1024**2):.1f} MB total")
+            print(f"      🎮 GPU Device: {lora_baseline['gpu']['device_name']}")
+        
         # Apply LoRA with monitoring
         try:
             print("\n🔧 APPLYING LORA TO MODELS...")
+            
+            # Start monitoring peak memory during LoRA application
+            model_monitor.start_monitoring("lora_application")
+            
+            # Update peak memory before LoRA application
+            model_monitor.update_peak_memory()
+            
             loraloader = LoraLoader()
             loraloader_24 = loraloader.load_lora(
                 lora_name="lora.safetensors",
@@ -1132,9 +1302,19 @@ def main():
                 clip=clip_model_baseline,
             )
             
+            # Update peak memory after LoRA application
+            model_monitor.update_peak_memory()
+            
             # Extract modified models from result
             modified_unet = get_value_at_index(loraloader_24, 0)
             modified_clip = get_value_at_index(loraloader_24, 1)
+            
+            # Update peak memory after model extraction
+            model_monitor.update_peak_memory()
+            
+            # End monitoring and get peak memory summary
+            elapsed_time = model_monitor.end_monitoring("lora_application")
+            peak_memory_summary = model_monitor.get_peak_memory_summary()
             
             # Analyze LoRA application results
             print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
@@ -1148,6 +1328,13 @@ def main():
             # Print comprehensive analysis
             model_monitor.print_lora_analysis_summary(lora_analysis)
             
+            # Print peak memory information
+            print(f"\n📊 PEAK MEMORY DURING LORA APPLICATION:")
+            print(f"   🖥️  RAM Peak: {peak_memory_summary['ram_peak_mb']:.1f} MB")
+            print(f"   🎮 GPU Allocated Peak: {peak_memory_summary['gpu_allocated_peak_mb']:.1f} MB")
+            print(f"   🎮 GPU Reserved Peak: {peak_memory_summary['gpu_reserved_peak_mb']:.1f} MB")
+            print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
+            
             print("✅ Step 2 completed: LoRA Application with comprehensive monitoring")
             
         except Exception as e:
@@ -1157,117 +1344,13 @@ def main():
             
         # === STEP 2 END: LORA APPLICATION ===
 
-        # === STEP 3 START: TEXT ENCODING ===
-        print("3. Encoding text prompts...")
-        
-        cliptextencode = CLIPTextEncode()
-        cliptextencode_10 = cliptextencode.encode(
-            text="a cinematic video.", clip=get_value_at_index(loraloader_24, 1)
-        )
-
-        cliptextencode_11 = cliptextencode.encode(
-            text="色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走 , extra hands, extra arms, extra legs",
-            clip=get_value_at_index(loraloader_24, 1),
-        )
-        
-        print("✅ Step 3 completed: Text Encoding")
-        # === STEP 3 END: TEXT ENCODING ===
-
-        # === STEP 4 START: MODEL SAMPLING ===
-        print("4. Applying ModelSamplingSD3...")
-        
-        modelsamplingsd3 = NODE_CLASS_MAPPINGS["ModelSamplingSD3"]()
-        modelsamplingsd3_15 = modelsamplingsd3.patch(
-            shift=8.000000000000002, model=get_value_at_index(loraloader_24, 0)
-        )
-        
-        print("✅ Step 4 completed: Model Sampling")
-        # === STEP 4 END: MODEL SAMPLING ===
-
-        # === STEP 5 START: INITIAL LATENT GENERATION ===
-        print("5. Generating initial latents...")
-        
-        wanvacetovideo = NODE_CLASS_MAPPINGS["WanVaceToVideo"]()
-        wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
-            width=480,
-            height=832,
-            length=37,
-            batch_size=1,
-            strength=1,
-            positive=get_value_at_index(cliptextencode_10, 0),
-            negative=get_value_at_index(cliptextencode_11, 0),
-            vae=get_value_at_index(vaeloader_7, 0),
-            control_video=get_value_at_index(vhs_loadvideo_1, 0),
-            reference_image=get_value_at_index(loadimage_4, 0),
-        )
-        
-        print("✅ Step 5 completed: Initial Latent Generation")
-        # === STEP 5 END: INITIAL LATENT GENERATION ===
-
-        # === STEP 6 START: UNET SAMPLING ===
-        print("6. Running KSampler...")
-        
-        ksampler = KSampler()
-        ksampler_14 = ksampler.sample(
-            seed=random.randint(1, 2**64),
-            steps=4,
-            cfg=1,
-            sampler_name="ddim",
-            scheduler="normal",
-            denoise=1,
-            model=get_value_at_index(modelsamplingsd3_15, 0),
-            positive=get_value_at_index(wanvacetovideo_13, 0),
-            negative=get_value_at_index(wanvacetovideo_13, 1),
-            latent_image=get_value_at_index(wanvacetovideo_13, 2),
-        )
-        
-        print("✅ Step 6 completed: UNET Sampling")
-        # === STEP 6 END: UNET SAMPLING ===
-
-        # === STEP 7 START: VIDEO TRIMMING ===
-        print("7. Trimming video latent...")
-        
-        trimvideolatent = NODE_CLASS_MAPPINGS["TrimVideoLatent"]()
-        trimvideolatent_16 = trimvideolatent.EXECUTE_NORMALIZED(
-            trim_amount=get_value_at_index(wanvacetovideo_13, 3),
-            samples=get_value_at_index(ksampler_14, 0),
-        )
-        
-        print("✅ Step 7 completed: Video Trimming")
-        # === STEP 7 END: VIDEO TRIMMING ===
-
-        # === STEP 8 START: VAE DECODING ===
-        print("8. Decoding latents to frames...")
-        
-        vaedecode = VAEDecode()
-        vaedecode_18 = vaedecode.decode(
-            samples=get_value_at_index(trimvideolatent_16, 0),
-            vae=get_value_at_index(vaeloader_7, 0),
-        )
-        
-        print("✅ Step 8 completed: VAE Decoding")
-        # === STEP 8 END: VAE DECODING ===
-
-        # === STEP 9 START: VIDEO EXPORT ===
-        print("9. Exporting video...")
-        
-        vhs_videocombine = NODE_CLASS_MAPPINGS["VHS_VideoCombine"]()
-        vhs_videocombine_19 = vhs_videocombine.combine_video(
-            frame_rate=19,
-            loop_count=0,
-            filename_prefix="AnimateDiff",
-            format="video/h264-mp4",
-            pix_fmt="yuv420p",
-            crf=19,
-            save_metadata=True,
-            trim_to_audio=False,
-            pingpong=False,
-            save_output=True,
-            images=get_value_at_index(vaedecode_18, 0),
-        )
-        
-        print("✅ Step 9 completed: Video Export")
-        print("🎉 All workflow steps completed successfully!")
+        # Stop execution after step 2 for debugging purposes
+        print("\n🛑 STOPPING EXECUTION AFTER STEP 2 (LORA APPLICATION)")
+        print("🔍 All LoRA application debugging information has been displayed above.")
+        print("📊 Check the monitoring data above to analyze LoRA application performance.")
+        print("🔍 Step 1: Model Loading - COMPLETED")
+        print("🔍 Step 2: LoRA Application - COMPLETED")
+        print("🔍 Steps 3-9: SKIPPED for debugging purposes")
         
         # === FINAL MONITORING SUMMARY ===
         print("\n" + "="*80)
@@ -1283,7 +1366,7 @@ def main():
         
         print("="*80)
         
-        # === STEP 9 END: VIDEO EXPORT ===
+        return
 
 
 if __name__ == "__main__":
