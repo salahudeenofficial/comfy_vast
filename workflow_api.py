@@ -400,6 +400,329 @@ class ModelLoadingMonitor:
                 print(f"   GPU: {data['gpu_change_mb']['allocated']:+.1f} MB allocated")
         
         print("=" * 80)
+    
+    def print_comprehensive_summary(self, lora_analysis=None):
+        """Print comprehensive summary including both model loading and LoRA application"""
+        print(f"\n📊 COMPREHENSIVE WORKFLOW MONITORING SUMMARY")
+        print("=" * 80)
+        
+        # Step 1: Model Loading Summary
+        print(f"🔍 STEP 1: MODEL LOADING")
+        self.print_summary()
+        
+        # Step 2: LoRA Application Summary
+        if lora_analysis:
+            print(f"\n🔍 STEP 2: LORA APPLICATION")
+            self.print_lora_analysis_summary(lora_analysis)
+        else:
+            print(f"\n🔍 STEP 2: LORA APPLICATION - No analysis available")
+        
+        print("=" * 80)
+    
+    # === LORA APPLICATION MONITORING METHODS ===
+    
+    def capture_lora_baseline(self, unet_model, clip_model):
+        """Capture baseline state before LoRA application"""
+        baseline = {
+            'timestamp': time.time(),
+            'unet': {
+                'model_id': id(unet_model),
+                'class': type(unet_model).__name__,
+                'device': getattr(unet_model, 'device', None),
+                'patches_count': len(getattr(unet_model, 'patches', {})),
+                'patches_uuid': getattr(unet_model, 'patches_uuid', None),
+                'memory_allocated': torch.cuda.memory_allocated() if torch.cuda.is_available() else 0,
+                'memory_reserved': torch.cuda.memory_reserved() if torch.cuda.is_available() else 0
+            },
+            'clip': {
+                'model_id': id(clip_model),
+                'class': type(clip_model).__name__,
+                'device': getattr(clip_model, 'device', None),
+                'patcher_patches_count': len(getattr(clip_model.patcher, 'patches', {})) if hasattr(clip_model, 'patcher') else 0,
+                'patcher_patches_uuid': getattr(clip_model.patcher, 'patches_uuid', None) if hasattr(clip_model, 'patcher') else None,
+                'memory_allocated': torch.cuda.memory_allocated() if torch.cuda.is_available() else 0,
+                'memory_reserved': torch.cuda.memory_reserved() if torch.cuda.is_available() else 0
+            }
+        }
+        return baseline
+    
+    def track_model_identity_changes(self, original_model, modified_model, model_type):
+        """Track changes in model identity and structure"""
+        
+        # 1. Model Instance Changes
+        model_cloned = original_model is not modified_model
+        model_class_changed = type(original_model) != type(modified_model)
+        
+        # 2. ModelPatcher Changes (for UNET)
+        original_patch_count = 0
+        modified_patch_count = 0
+        patches_added = 0
+        original_uuid = None
+        modified_uuid = None
+        uuid_changed = False
+        
+        if hasattr(original_model, 'patches') and hasattr(modified_model, 'patches'):
+            original_patch_count = len(original_model.patches)
+            modified_patch_count = len(modified_model.patches)
+            patches_added = modified_patch_count - original_patch_count
+            
+            # 3. Patch UUID Changes
+            original_uuid = getattr(original_model, 'patches_uuid', None)
+            modified_uuid = getattr(modified_model, 'patches_uuid', None)
+            uuid_changed = original_uuid != modified_uuid
+        
+        return {
+            'model_cloned': model_cloned,
+            'class_changed': model_class_changed,
+            'patches_added': patches_added,
+            'uuid_changed': uuid_changed,
+            'original_patch_count': original_patch_count,
+            'modified_patch_count': modified_patch_count
+        }
+    
+    def track_weight_modifications(self, original_model, modified_model, model_type):
+        """Track how LoRA modifies model weights"""
+        
+        # 1. State Dict Changes
+        original_state = {}
+        modified_state = {}
+        
+        try:
+            if hasattr(original_model, 'state_dict'):
+                original_state = original_model.state_dict()
+            if hasattr(modified_model, 'state_dict'):
+                modified_state = modified_model.state_dict()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not access state_dict for {model_type}: {e}")
+        
+        # 2. Key Differences
+        original_keys = set(original_state.keys())
+        modified_keys = set(modified_state.keys())
+        keys_added = modified_keys - original_keys
+        keys_removed = original_keys - modified_keys
+        keys_modified = original_keys & modified_keys
+        
+        # 3. Weight Value Changes (for accessible weights)
+        weight_changes = {}
+        for key in keys_modified:
+            if key in original_state and key in modified_state:
+                orig_weight = original_state[key]
+                mod_weight = modified_state[key]
+                
+                if hasattr(orig_weight, 'shape') and hasattr(mod_weight, 'shape'):
+                    shape_changed = orig_weight.shape != mod_weight.shape
+                    dtype_changed = orig_weight.dtype != mod_weight.dtype
+                    device_changed = orig_weight.device != mod_weight.device
+                    
+                    weight_changes[key] = {
+                        'shape_changed': shape_changed,
+                        'dtype_changed': dtype_changed,
+                        'device_changed': device_changed,
+                        'original_shape': str(orig_weight.shape),
+                        'modified_shape': str(mod_weight.shape)
+                    }
+        
+        return {
+            'keys_added': list(keys_added),
+            'keys_removed': list(keys_removed),
+            'keys_modified': list(keys_modified),
+            'weight_changes': weight_changes,
+            'total_keys_original': len(original_keys),
+            'total_keys_modified': len(modified_keys)
+        }
+    
+    def analyze_lora_patches(self, modified_model, model_type):
+        """Analyze the specific LoRA patches applied to the model"""
+        
+        if not hasattr(modified_model, 'patches'):
+            return {'error': 'Model has no patches attribute'}
+        
+        patches = modified_model.patches
+        lora_patches = {}
+        
+        for key, patch_list in patches.items():
+            if patch_list:  # If patches exist for this key
+                # Each patch is a tuple: (strength_patch, patch_data, strength_model, offset, function)
+                for patch in patch_list:
+                    if len(patch) >= 2:
+                        strength_patch, patch_data = patch[0], patch[1]
+                        
+                        # Determine patch type
+                        if isinstance(patch_data, dict) and 'lora_up.weight' in str(patch_data):
+                            patch_type = 'lora_up'
+                        elif isinstance(patch_data, dict) and 'lora_down.weight' in str(patch_data):
+                            patch_type = 'lora_down'
+                        elif isinstance(patch_data, dict) and 'diff' in str(patch_data):
+                            patch_type = 'diff'
+                        else:
+                            patch_type = 'unknown'
+                        
+                        lora_patches[key] = {
+                            'strength_patch': strength_patch,
+                            'patch_type': patch_type,
+                            'patch_data_shape': str(type(patch_data)),
+                            'patch_count': len(patch_list)
+                        }
+        
+        return {
+            'total_patched_keys': len(lora_patches),
+            'patch_details': lora_patches,
+            'model_type': model_type
+        }
+    
+    def track_model_placement_changes(self, original_model, modified_model, model_type):
+        """Track changes in model device placement"""
+        
+        # 1. Device Changes
+        original_device = getattr(original_model, 'device', None)
+        modified_device = getattr(modified_model, 'device', None)
+        
+        # 2. ModelPatcher Device Changes
+        original_load_device = getattr(original_model, 'load_device', None)
+        modified_load_device = getattr(modified_model, 'load_device', None)
+        
+        original_offload_device = getattr(original_model, 'offload_device', None)
+        modified_offload_device = getattr(modified_model, 'offload_device', None)
+        
+        # 3. CLIP-specific device tracking
+        clip_model_device = None
+        clip_patcher_load_device = None
+        clip_patcher_offload_device = None
+        
+        if model_type == 'CLIP' and hasattr(modified_model, 'patcher'):
+            try:
+                clip_model_device = getattr(modified_model.patcher.model, 'device', None)
+                clip_patcher_load_device = getattr(modified_model.patcher, 'load_device', None)
+                clip_patcher_offload_device = getattr(modified_model.patcher, 'offload_device', None)
+            except Exception as e:
+                print(f"⚠️  Warning: Could not access CLIP patcher device info: {e}")
+        
+        return {
+            'model_device_changed': original_device != modified_device,
+            'load_device_changed': original_load_device != modified_load_device,
+            'offload_device_changed': original_offload_device != modified_offload_device,
+            'original_device': str(original_device),
+            'modified_device': str(modified_device),
+            'clip_model_device': str(clip_model_device) if clip_model_device else None,
+            'clip_patcher_devices': {
+                'load': str(clip_patcher_load_device),
+                'offload': str(clip_patcher_offload_device)
+            } if clip_patcher_load_device else None
+        }
+    
+    def calculate_memory_change(self, baseline_info, current_model):
+        """Calculate memory usage changes for a model"""
+        try:
+            current_allocated = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
+            current_reserved = torch.cuda.memory_reserved() if torch.cuda.is_available() else 0
+            
+            allocated_change = current_allocated - baseline_info['memory_allocated']
+            reserved_change = current_reserved - baseline_info['memory_reserved']
+            
+            return {
+                'allocated_change_mb': allocated_change / (1024**2),
+                'reserved_change_mb': reserved_change / (1024**2),
+                'current_allocated_mb': current_allocated / (1024**2),
+                'current_reserved_mb': current_reserved / (1024**2)
+            }
+        except Exception as e:
+            return {'error': f'Memory calculation failed: {e}'}
+    
+    def analyze_lora_application_results(self, baseline, modified_unet, modified_clip, lora_result):
+        """Analyze the results of LoRA application"""
+        
+        analysis = {
+            'lora_application_success': lora_result is not None,
+            'models_returned': len(lora_result) if lora_result else 0,
+            'unet_changes': self.track_model_identity_changes(
+                baseline['unet'], modified_unet, 'UNET'
+            ),
+            'clip_changes': self.track_model_identity_changes(
+                baseline['clip'], modified_clip, 'CLIP'
+            ),
+            'unet_weight_changes': self.track_weight_modifications(
+                baseline['unet'], modified_clip, 'UNET'
+            ),
+            'clip_weight_changes': self.track_weight_modifications(
+                baseline['clip'], modified_clip, 'CLIP'
+            ),
+            'unet_lora_patches': self.analyze_lora_patches(modified_unet, 'UNET'),
+            'clip_lora_patches': self.analyze_lora_patches(modified_clip, 'CLIP'),
+            'placement_changes': {
+                'unet': self.track_model_placement_changes(
+                    baseline['unet'], modified_unet, 'UNET'
+                ),
+                'clip': self.track_model_placement_changes(
+                    baseline['clip'], modified_clip, 'CLIP'
+                )
+            },
+            'memory_impact': {
+                'unet_memory_change': self.calculate_memory_change(
+                    baseline['unet'], modified_unet
+                ),
+                'clip_memory_change': self.calculate_memory_change(
+                    baseline['clip'], modified_clip
+                )
+            }
+        }
+        
+        return analysis
+    
+    def print_lora_analysis_summary(self, analysis):
+        """Print comprehensive LoRA application analysis"""
+        print(f"\n🔍 LORA APPLICATION ANALYSIS SUMMARY")
+        print("=" * 80)
+        
+        # Basic success info
+        print(f"✅ LoRA Application Success: {'YES' if analysis['lora_application_success'] else 'NO'}")
+        print(f"📦 Models Returned: {analysis['models_returned']}")
+        
+        # UNET Changes
+        print(f"\n🔧 UNET MODEL CHANGES:")
+        unet_changes = analysis['unet_changes']
+        print(f"   Model Cloned: {'✅ YES' if unet_changes['model_cloned'] else '❌ NO'}")
+        print(f"   Class Changed: {'✅ YES' if unet_changes['class_changed'] else '❌ NO'}")
+        print(f"   Patches Added: {unet_changes['patches_added']}")
+        print(f"   UUID Changed: {'✅ YES' if unet_changes['uuid_changed'] else '❌ NO'}")
+        print(f"   Original Patches: {unet_changes['original_patch_count']}")
+        print(f"   Modified Patches: {unet_changes['modified_patch_count']}")
+        
+        # CLIP Changes
+        print(f"\n🔧 CLIP MODEL CHANGES:")
+        clip_changes = analysis['clip_changes']
+        print(f"   Model Cloned: {'✅ YES' if clip_changes['model_cloned'] else '❌ NO'}")
+        print(f"   Class Changed: {'✅ YES' if clip_changes['class_changed'] else '❌ NO'}")
+        print(f"   Patches Added: {clip_changes['patches_added']}")
+        print(f"   UUID Changed: {'✅ YES' if clip_changes['uuid_changed'] else '❌ NO'}")
+        print(f"   Original Patches: {clip_changes['original_patch_count']}")
+        print(f"   Modified Patches: {clip_changes['modified_patch_count']}")
+        
+        # LoRA Patches Analysis
+        print(f"\n🔧 LORA PATCHES ANALYSIS:")
+        unet_patches = analysis['unet_lora_patches']
+        clip_patches = analysis['clip_lora_patches']
+        
+        if 'error' not in unet_patches:
+            print(f"   UNET Patched Keys: {unet_patches['total_patched_keys']}")
+        else:
+            print(f"   UNET Patches: {unet_patches['error']}")
+            
+        if 'error' not in clip_patches:
+            print(f"   CLIP Patched Keys: {clip_patches['total_patched_keys']}")
+        else:
+            print(f"   CLIP Patches: {clip_patches['error']}")
+        
+        # Memory Impact
+        print(f"\n💾 MEMORY IMPACT:")
+        unet_memory = analysis['memory_impact']['unet_memory_change']
+        clip_memory = analysis['memory_impact']['clip_memory_change']
+        
+        if 'error' not in unet_memory:
+            print(f"   UNET Memory Change: {unet_memory['allocated_change_mb']:+.1f} MB allocated, {unet_memory['reserved_change_mb']:+.1f} MB reserved")
+        if 'error' not in clip_memory:
+            print(f"   CLIP Memory Change: {clip_memory['allocated_change_mb']:+.1f} MB allocated, {clip_memory['reserved_change_mb']:+.1f} MB reserved")
+        
+        print("=" * 80)
 
 # Initialize the monitor
 model_monitor = ModelLoadingMonitor()
@@ -768,25 +1091,70 @@ def main():
         print("✅ Step 1 completed: Model Loading")
         # === STEP 1 END: MODEL LOADING ===
         
-        # Stop execution after step 1 for debugging purposes
-        print("\n🛑 STOPPING EXECUTION AFTER STEP 1 (MODEL LOADING)")
-        print("🔍 All model loading debugging information has been displayed above.")
-        print("📊 Check the monitoring data above to analyze model loading performance.")
-        return
+        # Debug execution stopped - continuing to step 2
+        print("\n🔍 Step 1 debugging complete - continuing to LoRA application...")
 
         # === STEP 2 START: LORA APPLICATION ===
         print("2. Applying LoRA...")
         
-        loraloader = LoraLoader()
-        loraloader_24 = loraloader.load_lora(
-            lora_name="lora.safetensors",
-            strength_model=0.5000000000000001,
-            strength_clip=1,
-            model=get_value_at_index(unetloader_27, 0),
-            clip=get_value_at_index(cliploader_23, 0),
+        # Capture baseline state before LoRA application
+        print("\n🔍 CAPTURING BASELINE STATE BEFORE LORA APPLICATION...")
+        unet_model_baseline = get_value_at_index(unetloader_27, 0)
+        clip_model_baseline = get_value_at_index(cliploader_23, 0)
+        
+        # Check LoRA file status
+        lora_filename = "lora.safetensors"
+        lora_file_exists = os.path.exists(lora_filename)
+        lora_file_size = os.path.getsize(lora_filename) if lora_file_exists else 0
+        
+        print(f"   📁 LoRA File: {lora_filename}")
+        print(f"   📁 File Exists: {'✅ YES' if lora_file_exists else '❌ NO'}")
+        if lora_file_exists:
+            print(f"   📁 File Size: {lora_file_size / (1024**2):.2f} MB")
+        
+        lora_baseline = model_monitor.capture_lora_baseline(
+            unet_model_baseline, 
+            clip_model_baseline
         )
         
-        print("✅ Step 2 completed: LoRA Application")
+        print(f"   ✅ UNET Baseline captured - ID: {lora_baseline['unet']['model_id']}, Patches: {lora_baseline['unet']['patches_count']}")
+        print(f"   ✅ CLIP Baseline captured - ID: {lora_baseline['clip']['model_id']}, Patches: {lora_baseline['clip']['patcher_patches_count']}")
+        
+        # Apply LoRA with monitoring
+        try:
+            print("\n🔧 APPLYING LORA TO MODELS...")
+            loraloader = LoraLoader()
+            loraloader_24 = loraloader.load_lora(
+                lora_name="lora.safetensors",
+                strength_model=0.5000000000000001,
+                strength_clip=1,
+                model=unet_model_baseline,
+                clip=clip_model_baseline,
+            )
+            
+            # Extract modified models from result
+            modified_unet = get_value_at_index(loraloader_24, 0)
+            modified_clip = get_value_at_index(loraloader_24, 1)
+            
+            # Analyze LoRA application results
+            print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
+            lora_analysis = model_monitor.analyze_lora_application_results(
+                lora_baseline, 
+                modified_unet, 
+                modified_clip, 
+                loraloader_24
+            )
+            
+            # Print comprehensive analysis
+            model_monitor.print_lora_analysis_summary(lora_analysis)
+            
+            print("✅ Step 2 completed: LoRA Application with comprehensive monitoring")
+            
+        except Exception as e:
+            print(f"❌ ERROR during LoRA application: {e}")
+            print("🔍 LoRA application failed - check error details above")
+            loraloader_24 = None
+            
         # === STEP 2 END: LORA APPLICATION ===
 
         # === STEP 3 START: TEXT ENCODING ===
@@ -905,7 +1273,14 @@ def main():
         print("\n" + "="*80)
         print("🔍 FINAL WORKFLOW MONITORING SUMMARY")
         print("="*80)
-        model_monitor.print_summary()
+        
+        # Use comprehensive summary if LoRA analysis is available
+        if 'lora_analysis' in locals():
+            model_monitor.print_comprehensive_summary(lora_analysis)
+        else:
+            model_monitor.print_summary()
+            print("\n⚠️  LoRA analysis not available - step 2 may not have completed")
+        
         print("="*80)
         
         # === STEP 9 END: VIDEO EXPORT ===

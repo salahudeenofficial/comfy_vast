@@ -5,7 +5,7 @@ tasks:
 	2) change the script workflow_api.py such that it exceute workflow only one time and there is no loop.
 	3) organise code such that start and end of important steps could be marked in both script , these 9  important steps are model loading(clip,vae,unet),LoRA Application,Text Encoding,Model Sampling,Initial Latent Generation,UNET Sampling,Video Trimming,VAE Decoding and Video Export.they must then be marked easy to see and differentiate and compare.   
 	4) find and impliment ways to monitor and debug issues with step 1.basis parameters used to compare it could be peak gpu memory usage,time and also any other step specific parameters.
-
+	5) find find and impliment ways to monitor and debug issues with step 2.basis parameters used to compare it could be peak gpu memory usage,time and also any other step specific parameters.
 points to remeber:
 	) two types of behaviours are expected from you, one is anlysis mode and the other edit mode.
 	2) try to ask more questions rather than assuming state or context details.
