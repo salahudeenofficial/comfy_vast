@@ -1267,6 +1267,9 @@ def main():
         print(f"   📁 File Exists: {'✅ YES' if lora_file_exists else '❌ NO'}")
         if lora_file_exists:
             print(f"   📁 File Size: {lora_file_size / (1024**2):.2f} MB")
+        else:
+            print(f"   ⚠️  LoRA file not found - will attempt to continue but may fail")
+            print(f"   💡 Make sure 'lora.safetensors' exists in the current directory")
         
         lora_baseline = model_monitor.capture_lora_baseline(
             unet_model_baseline, 
@@ -1282,6 +1285,13 @@ def main():
         if lora_baseline['gpu']:
             print(f"      🎮 GPU: {lora_baseline['gpu']['allocated'] / (1024**2):.1f} MB allocated / {lora_baseline['gpu']['total'] / (1024**2):.1f} MB total")
             print(f"      🎮 GPU Device: {lora_baseline['gpu']['device_name']}")
+        
+        # Check if we can proceed with LoRA application
+        if not lora_file_exists:
+            print(f"\n❌ CANNOT PROCEED: LoRA file '{lora_filename}' not found!")
+            print(f"🔍 Please ensure the LoRA file exists before running this script.")
+            print(f"📁 Expected location: {os.path.abspath(lora_filename)}")
+            return
         
         # Apply LoRA with monitoring
         try:
@@ -1313,7 +1323,7 @@ def main():
             model_monitor.update_peak_memory()
             
             # End monitoring and get peak memory summary
-            elapsed_time = model_monitor.end_monitoring("lora_application")
+            elapsed_time = model_monitor.end_monitoring("lora_application", loraloader_24, "LoRA_Result")
             peak_memory_summary = model_monitor.get_peak_memory_summary()
             
             # Analyze LoRA application results
