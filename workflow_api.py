@@ -1259,7 +1259,7 @@ def main():
         clip_model_baseline = get_value_at_index(cliploader_23, 0)
         
         # Check LoRA file status
-        lora_filename = "lora.safetensors"
+        lora_filename = "models/loras/lora.safetensors"
         lora_file_exists = os.path.exists(lora_filename)
         lora_file_size = os.path.getsize(lora_filename) if lora_file_exists else 0
         
@@ -1291,6 +1291,7 @@ def main():
             print(f"\n❌ CANNOT PROCEED: LoRA file '{lora_filename}' not found!")
             print(f"🔍 Please ensure the LoRA file exists before running this script.")
             print(f"📁 Expected location: {os.path.abspath(lora_filename)}")
+            print(f"💡 The LoRA file should be in: models/loras/lora.safetensors")
             return
         
         # Apply LoRA with monitoring
