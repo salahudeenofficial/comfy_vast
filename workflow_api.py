@@ -849,6 +849,35 @@ class ModelLoadingMonitor:
         else:
             print(f"   CLIP Patches: {clip_patches['error']}")
         
+        # Model Placement Changes
+        print(f"\n📍 MODEL PLACEMENT CHANGES:")
+        placement_changes = analysis['placement_changes']
+        
+        # UNET Placement
+        unet_placement = placement_changes['unet']
+        print(f"   🔧 UNET PLACEMENT:")
+        print(f"      Model Device Changed: {'✅ YES' if unet_placement['model_device_changed'] else '❌ NO'}")
+        print(f"      Load Device Changed: {'✅ YES' if unet_placement['load_device_changed'] else '❌ NO'}")
+        print(f"      Offload Device Changed: {'✅ YES' if unet_placement['offload_device_changed'] else '❌ NO'}")
+        print(f"      Original Device: {unet_placement['original_device']}")
+        print(f"      Modified Device: {unet_placement['modified_device']}")
+        
+        # CLIP Placement
+        clip_placement = placement_changes['clip']
+        print(f"   🔧 CLIP PLACEMENT:")
+        print(f"      Model Device Changed: {'✅ YES' if clip_placement['model_device_changed'] else '❌ NO'}")
+        print(f"      Load Device Changed: {'✅ YES' if clip_placement['load_device_changed'] else '❌ NO'}")
+        print(f"      Offload Device Changed: {'✅ YES' if clip_placement['offload_device_changed'] else '❌ NO'}")
+        print(f"      Original Device: {clip_placement['original_device']}")
+        print(f"      Modified Device: {clip_placement['modified_device']}")
+        
+        # CLIP-specific device information
+        if clip_placement['clip_model_device']:
+            print(f"      CLIP Model Device: {clip_placement['clip_model_device']}")
+        if clip_placement['clip_patcher_devices']:
+            print(f"      CLIP Patcher Load Device: {clip_placement['clip_patcher_devices']['load']}")
+            print(f"      CLIP Patcher Offload Device: {clip_placement['clip_patcher_devices']['offload']}")
+        
         # Memory Impact
         print(f"\n💾 MEMORY IMPACT:")
         memory_impact = analysis['memory_impact']
@@ -874,6 +903,69 @@ class ModelLoadingMonitor:
                 print(f"      Reserved Change: {gpu['reserved_change_pct']:+.1f}%")
         else:
             print(f"   ❌ Memory calculation failed: {memory_impact['error']}")
+        
+        # Peak Memory Information
+        if 'peak_memory' in analysis:
+            print(f"\n📊 PEAK MEMORY DURING LORA APPLICATION:")
+            peak_memory = analysis['peak_memory']
+            print(f"   🖥️  RAM Peak: {peak_memory['ram_peak_mb']:.1f} MB")
+            print(f"   🎮 GPU Allocated Peak: {peak_memory['gpu_allocated_peak_mb']:.1f} MB")
+            print(f"   🎮 GPU Reserved Peak: {peak_memory['gpu_reserved_peak_mb']:.1f} MB")
+            
+            # Show peak timestamps if available
+            if peak_memory['peak_timestamps']:
+                print(f"   ⏱️  Peak Timestamps:")
+                for peak in peak_memory['peak_timestamps'][:5]:  # Show first 5 peaks
+                    print(f"      {peak['type']}: {peak['value_mb']:.1f} MB at {peak['timestamp']:.2f}s")
+        
+        # Detailed Memory Breakdown
+        print(f"\n💾 DETAILED MEMORY BREAKDOWN:")
+        memory_impact = analysis['memory_impact']
+        
+        if 'error' not in memory_impact:
+            # RAM Breakdown
+            if 'ram' in memory_impact:
+                ram = memory_impact['ram']
+                print(f"   🖥️  RAM MEMORY BREAKDOWN:")
+                print(f"      Baseline State:")
+                print(f"         Used: {ram['baseline_used_mb']:.1f} MB")
+                print(f"         Available: {ram['baseline_available_mb']:.1f} MB")
+                print(f"         Usage: {ram['baseline_percent_used']:.1f}%")
+                print(f"      Current State:")
+                print(f"         Used: {ram['current_used_mb']:.1f} MB")
+                print(f"         Available: {ram['current_available_mb']:.1f} MB")
+                print(f"         Usage: {ram['current_percent_used']:.1f}%")
+                print(f"      Changes:")
+                print(f"         Used Change: {ram['used_change_mb']:+.1f} MB ({ram['used_change_mb']/ram['baseline_used_mb']*100:+.1f}%)")
+                print(f"         Available Change: {ram['available_change_mb']:+.1f} MB")
+                print(f"         Usage Change: {ram['current_percent_used'] - ram['baseline_percent_used']:+.1f}%")
+            
+            # GPU Breakdown
+            if 'gpu' in memory_impact and memory_impact['gpu']:
+                gpu = memory_impact['gpu']
+                print(f"\n   🎮 GPU MEMORY BREAKDOWN:")
+                print(f"      Baseline State:")
+                print(f"         Allocated: {gpu['baseline_allocated_mb']:.1f} MB")
+                print(f"         Reserved: {gpu['baseline_reserved_mb']:.1f} MB")
+                print(f"         Total VRAM: {gpu['baseline_total_mb']:.1f} MB")
+                print(f"         Available VRAM: {gpu['baseline_total_mb'] - gpu['baseline_reserved_mb']:.1f} MB")
+                print(f"      Current State:")
+                print(f"         Allocated: {gpu['current_allocated_mb']:.1f} MB")
+                print(f"         Reserved: {gpu['current_reserved_mb']:.1f} MB")
+                print(f"         Total VRAM: {gpu['current_total_mb']:.1f} MB")
+                print(f"         Available VRAM: {gpu['current_total_mb'] - gpu['current_reserved_mb']:.1f} MB")
+                print(f"      Changes:")
+                print(f"         Allocated Change: {gpu['allocated_change_mb']:+.1f} MB ({gpu['allocated_change_pct']:+.1f}%)")
+                print(f"         Reserved Change: {gpu['reserved_change_mb']:+.1f} MB ({gpu['reserved_change_pct']:+.1f}%)")
+                print(f"         Available VRAM Change: {(gpu['current_total_mb'] - gpu['current_reserved_mb']) - (gpu['baseline_total_mb'] - gpu['baseline_reserved_mb']):+.1f} MB")
+                
+                # Memory efficiency analysis
+                baseline_efficiency = (gpu['baseline_allocated_mb'] / gpu['baseline_reserved_mb'] * 100) if gpu['baseline_reserved_mb'] > 0 else 0
+                current_efficiency = (gpu['current_allocated_mb'] / gpu['current_reserved_mb'] * 100) if gpu['current_reserved_mb'] > 0 else 0
+                print(f"      Memory Efficiency:")
+                print(f"         Baseline: {baseline_efficiency:.1f}% (allocated/reserved)")
+                print(f"         Current: {current_efficiency:.1f}% (allocated/reserved)")
+                print(f"         Efficiency Change: {current_efficiency - baseline_efficiency:+.1f}%")
         
         print("=" * 80)
 
