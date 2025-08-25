@@ -153,6 +153,31 @@ class ModelLoadingMonitor:
         
         print("=" * 60)
     
+    def _extract_tensor_recursively(self, obj, max_depth=5, current_depth=0):
+        """Recursively search for tensor objects in nested structures"""
+        if current_depth >= max_depth:
+            return None, f"Max depth {max_depth} reached"
+        
+        # Direct tensor check
+        if hasattr(obj, 'shape'):
+            return obj, f"Found tensor at depth {current_depth}"
+        
+        # List/tuple check
+        if isinstance(obj, (list, tuple)) and len(obj) > 0:
+            for i, item in enumerate(obj):
+                result, reason = self._extract_tensor_recursively(item, max_depth, current_depth + 1)
+                if result is not None:
+                    return result, f"Found in {type(obj).__name__}[{i}] at depth {current_depth}: {reason}"
+        
+        # Dictionary check
+        elif isinstance(obj, dict):
+            for key, value in obj.items():
+                result, reason = self._extract_tensor_recursively(value, max_depth, current_depth + 1)
+                if result is not None:
+                    return result, f"Found in dict['{key}'] at depth {current_depth}: {reason}"
+        
+        return None, f"No tensor found at depth {current_depth}"
+    
     def start_monitoring(self, step_name):
         """Start monitoring a specific step"""
         self.step_start_time = time.time()
@@ -1076,6 +1101,17 @@ class ModelLoadingMonitor:
                         metadata = {k: v for k, v in conditioning.items() if k != key}
                         print(f"   ✅ Strategy 3 SUCCESS: Found tensor in dict['{key}'] with shape: {tensor_data.shape}")
                         break
+            
+            # Strategy 4: Recursive deep search for nested structures
+            if tensor_data is None:
+                print(f"   🔍 Strategy 4: Attempting recursive deep search...")
+                tensor_data, reason = self._extract_tensor_recursively(conditioning)
+                if tensor_data is not None:
+                    print(f"   ✅ Strategy 4 SUCCESS: {reason}")
+                    # Create metadata from the original structure
+                    metadata = {'extraction_method': 'recursive', 'reason': reason}
+                else:
+                    print(f"   ❌ Strategy 4 FAILED: {reason}")
             
             # If we found tensor data, analyze it
             if tensor_data is not None and hasattr(tensor_data, 'shape'):
@@ -2239,6 +2275,23 @@ def main():
                         negative_cond = value
                         print(f"   🔍 Found negative tensor in dict['{key}']")
                         break
+            
+            # Strategy 4: Recursive deep search for nested structures
+            if (positive_cond is None or not hasattr(positive_cond, 'shape')) and positive_cond_tuple is not None:
+                print(f"   🔍 Strategy 4: Recursive search for positive tensor...")
+                positive_cond, reason = model_monitor._extract_tensor_recursively(positive_cond_tuple)
+                if positive_cond is not None:
+                    print(f"   ✅ Strategy 4 SUCCESS for positive: {reason}")
+                else:
+                    print(f"   ❌ Strategy 4 FAILED for positive: {reason}")
+            
+            if (negative_cond is None or not hasattr(negative_cond, 'shape')) and negative_cond_tuple is not None:
+                print(f"   🔍 Strategy 4: Recursive search for negative tensor...")
+                negative_cond, reason = model_monitor._extract_tensor_recursively(negative_cond_tuple)
+                if negative_cond is not None:
+                    print(f"   ✅ Strategy 4 SUCCESS for negative: {reason}")
+                else:
+                    print(f"   ❌ Strategy 4 FAILED for negative: {reason}")
             
             print(f"   🔍 Final positive_cond type: {type(positive_cond).__name__}")
             print(f"   🔍 Final negative_cond type: {type(negative_cond).__name__}")
