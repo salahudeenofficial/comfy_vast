@@ -1,0 +1,183 @@
+TEXT ENCODING MONITORING METRICS - STEP 3
+================================================================================
+
+OVERVIEW:
+Step 3 (Text Encoding) converts text prompts into conditioning tensors that guide the diffusion model.
+This step is critical as it creates the foundation for all subsequent generation steps.
+
+CRITICAL METRICS BEING TRACKED:
+================================================================================
+
+1. ⏱️ PERFORMANCE METRICS (MOST IMPORTANT)
+   ========================================
+   • Total Execution Time: Complete time for text encoding step
+   • Per-Prompt Encoding Time: Individual positive/negative prompt encoding
+   • Memory Peak Timestamps: When memory usage peaked during execution
+   • Overall Step Efficiency: Time per character/token processed
+
+2. 💾 MEMORY USAGE MONITORING (BEFORE, DURING, AFTER)
+   ==================================================
+   
+   RAM MEMORY:
+   • Baseline Used: RAM usage before text encoding starts
+   • Baseline Available: Available RAM before encoding
+   • Current Used: RAM usage after encoding completes
+   • Current Available: Available RAM after encoding
+   • Used Change: Absolute change in RAM usage (+/- MB)
+   • Usage Percentage: RAM utilization before and after
+   
+   GPU MEMORY:
+   • Baseline Allocated: GPU memory allocated before encoding
+   • Baseline Reserved: GPU memory reserved before encoding
+   • Current Allocated: GPU memory allocated after encoding
+   • Current Reserved: GPU memory reserved after encoding
+   • Allocated Change: Change in allocated GPU memory (+/- MB)
+   • Reserved Change: Change in reserved GPU memory (+/- MB)
+   • Peak Allocated: Maximum GPU memory allocated during encoding
+   • Peak Reserved: Maximum GPU memory reserved during encoding
+
+3. 📐 OUTPUT CONDITIONING TENSOR ANALYSIS
+   ======================================
+   
+   TENSOR PROPERTIES:
+   • Shape: Exact dimensions of output tensor (e.g., [1, 77, 1280])
+   • Data Type: Tensor data type (float32, float16, etc.)
+   • Device: Where tensor is stored (CPU, GPU, specific device)
+   • Size in MB: Memory footprint of the tensor
+   • Number of Elements: Total elements in tensor
+   
+   CLIP VARIANT DETECTION:
+   • SD 1.5 CLIP: 768 dimensions
+   • SD 2.1 CLIP: 1024 dimensions  
+   • SDXL CLIP: 1280 dimensions
+   • SD 3 / WAN T5: 2048 dimensions
+   • Unknown CLIP: Custom dimensions detected
+
+4. 💾 TENSOR DUMP FOR COMPARISON
+   =============================
+   
+   STORED DATA:
+   • Complete tensor data as numpy array
+   • Shape, dtype, device information
+   • Size calculations and element counts
+   • CLIP variant identification
+   • Metadata from conditioning structure
+   
+   COMPARISON PURPOSE:
+   • Cross-pipeline validation
+   • Before/after LoRA application comparison
+   • Model compatibility verification
+   • Debugging tensor format issues
+
+5. 🔧 MODEL STATE MONITORING
+   =========================
+   
+   CLIP MODEL STATUS:
+   • Model ID: Unique identifier for tracking changes
+   • Class Type: Model class name and structure
+   • Device Placement: Current device location
+   • Patches Count: Number of applied patches
+   • Patches UUID: Unique identifier for patches
+   
+   UNET MODEL STATUS:
+   • Model ID: For consistency checking
+   • Class Type: Model architecture verification
+   • Device Placement: Memory management verification
+
+6. 📝 TEXT PROCESSING ANALYSIS
+   ===========================
+   
+   PROMPT CHARACTERISTICS:
+   • Text Content: Actual prompt text
+   • Character Length: Total character count
+   • Word Count: Number of words
+   • Special Characters: Non-alphanumeric character count
+   
+   PROCESSING EFFICIENCY:
+   • Characters per second encoding rate
+   • Memory per character ratio
+   • GPU utilization during encoding
+
+7. ⚠️ ERROR DETECTION & VALIDATION
+   ================================
+   
+   ENCODING SUCCESS:
+   • Success/Failure status
+   • Error messages and stack traces
+   • Input validation results
+   • Output tensor validation
+   
+   COMPATIBILITY CHECKS:
+   • CLIP model compatibility
+   • Tensor dimension validation
+   • Device placement verification
+   • Memory threshold compliance
+
+8. 📊 COMPREHENSIVE REPORTING
+   ===========================
+   
+   SUMMARY SECTIONS:
+   • Basic Success Information
+   • Text Processing Analysis
+   • Positive Conditioning Analysis
+   • Negative Conditioning Analysis
+   • Memory Impact Summary
+   • Peak Memory Information
+   • Error Reports (if any)
+
+MONITORING INTEGRATION:
+================================================================================
+
+INTEGRATED WITH:
+• Step 1: Model Loading monitoring
+• Step 2: LoRA Application monitoring
+• Comprehensive workflow summary
+• Peak memory tracking system
+• Memory change calculations
+• Baseline state capture
+
+EXECUTION FLOW:
+1. Capture baseline state (models, memory)
+2. Start monitoring with peak tracking
+3. Execute text encoding operations
+4. Update peak memory at key points
+5. End monitoring and capture results
+6. Analyze outputs and memory changes
+7. Generate comprehensive report
+8. Store tensor dumps for comparison
+
+COMPARISON CAPABILITIES:
+================================================================================
+
+CROSS-STEP COMPARISON:
+• Memory usage patterns across steps
+• Performance degradation detection
+• Model state consistency verification
+• Resource utilization optimization
+
+CROSS-PIPELINE COMPARISON:
+• Tensor format validation
+• Memory efficiency benchmarking
+• Performance regression detection
+• Compatibility issue identification
+
+USAGE SCENARIOS:
+================================================================================
+
+DEBUGGING:
+• Memory leak detection during text encoding
+• Performance bottleneck identification
+• Model compatibility issue resolution
+• Tensor format validation
+
+OPTIMIZATION:
+• Memory usage optimization
+• Performance tuning
+• Resource allocation planning
+• Model selection guidance
+
+VALIDATION:
+• Pipeline correctness verification
+• Model compatibility testing
+• Performance regression detection
+• Quality assurance testing 

@@ -455,21 +455,29 @@ class ModelLoadingMonitor:
         
         print("=" * 80)
     
-    def print_comprehensive_summary(self, lora_analysis=None):
-        """Print comprehensive summary including both model loading and LoRA application"""
+    def print_comprehensive_summary(self, lora_analysis=None, text_encoding_analysis=None):
+        """Print comprehensive summary including model loading, LoRA application, and text encoding"""
         print(f"\n📊 COMPREHENSIVE WORKFLOW MONITORING SUMMARY")
         print("=" * 80)
         
         # Step 1: Model Loading Summary
         print(f"🔍 STEP 1: MODEL LOADING")
-        self.print_summary()
+        print("   ✅ Models loaded successfully (detailed monitoring disabled)")
+        # self.print_summary()
         
         # Step 2: LoRA Application Summary
+        print(f"\n🔍 STEP 2: LORA APPLICATION")
         if lora_analysis:
-            print(f"\n🔍 STEP 2: LORA APPLICATION")
             self.print_lora_analysis_summary(lora_analysis)
         else:
-            print(f"\n🔍 STEP 2: LORA APPLICATION - No analysis available")
+            print("   ✅ LoRA applied successfully (detailed monitoring disabled)")
+        
+        # Step 3: Text Encoding Summary
+        if text_encoding_analysis:
+            print(f"\n🔍 STEP 3: TEXT ENCODING")
+            self.print_text_encoding_analysis_summary(text_encoding_analysis)
+        else:
+            print(f"\n🔍 STEP 3: TEXT ENCODING - No analysis available")
         
         print("=" * 80)
     
@@ -804,6 +812,332 @@ class ModelLoadingMonitor:
         }
         
         return analysis
+    
+    # === TEXT ENCODING MONITORING METHODS ===
+    
+    def capture_text_encoding_baseline(self, unet_model, clip_model):
+        """Capture baseline state before text encoding"""
+        # Capture RAM baseline
+        ram_baseline = psutil.virtual_memory()
+        
+        # Capture GPU baseline
+        gpu_baseline = None
+        if torch.cuda.is_available():
+            gpu_baseline = {
+                'allocated': torch.cuda.memory_allocated(),
+                'reserved': torch.cuda.memory_reserved(),
+                'total': torch.cuda.get_device_properties(0).total_memory,
+                'device_name': torch.cuda.get_device_name(0)
+            }
+        
+        baseline = {
+            'timestamp': time.time(),
+            'ram': {
+                'used_mb': ram_baseline.used / (1024**2),
+                'available_mb': ram_baseline.available / (1024**2),
+                'total_mb': ram_baseline.total / (1024**2),
+                'percent_used': ram_baseline.percent
+            },
+            'gpu': gpu_baseline,
+            'unet': {
+                'model_id': id(unet_model),
+                'class': type(unet_model).__name__,
+                'device': getattr(unet_model, 'device', None),
+                'patches_count': len(getattr(unet_model, 'patches', {})),
+                'patches_uuid': getattr(unet_model, 'patches_uuid', None)
+            },
+            'clip': {
+                'model_id': id(clip_model),
+                'class': type(clip_model).__name__,
+                'device': getattr(clip_model, 'device', None),
+                'patcher_patches_count': len(getattr(clip_model.patcher, 'patches', {})) if hasattr(clip_model, 'patcher') else 0,
+                'patcher_patches_uuid': getattr(clip_model.patcher, 'patches_uuid', None) if hasattr(clip_model, 'patcher') else None
+            }
+        }
+        return baseline
+    
+    def analyze_text_encoding_results(self, baseline, positive_cond, negative_cond, positive_prompt, negative_prompt, elapsed_time):
+        """Analyze the results of text encoding"""
+        
+        # Get current memory state
+        current_ram = psutil.virtual_memory()
+        current_gpu = None
+        if torch.cuda.is_available():
+            current_gpu = {
+                'allocated': torch.cuda.memory_allocated(),
+                'reserved': torch.cuda.memory_reserved(),
+                'total': torch.cuda.get_device_properties(0).total_memory
+            }
+        
+        # Analyze conditioning tensors
+        positive_analysis = self._analyze_conditioning_tensor(positive_cond, "Positive")
+        negative_analysis = self._analyze_conditioning_tensor(negative_cond, "Negative")
+        
+        # Calculate memory changes
+        memory_impact = self._calculate_text_encoding_memory_change(baseline, current_ram, current_gpu)
+        
+        # Analyze text processing
+        text_analysis = self._analyze_text_processing(positive_prompt, negative_prompt)
+        
+        analysis = {
+            'encoding_success': positive_cond is not None and negative_cond is not None,
+            'elapsed_time': elapsed_time,
+            'positive_conditioning': positive_analysis,
+            'negative_conditioning': negative_analysis,
+            'text_processing': text_analysis,
+            'memory_impact': memory_impact,
+            'peak_memory': self.get_peak_memory_summary(),
+            'baseline': baseline,
+            'current_memory': {
+                'ram': current_ram,
+                'gpu': current_gpu
+            }
+        }
+        
+        return analysis
+    
+    def _analyze_conditioning_tensor(self, conditioning, tensor_type):
+        """Analyze a conditioning tensor in detail"""
+        if conditioning is None:
+            return {
+                'status': 'failed',
+                'error': 'Conditioning tensor is None'
+            }
+        
+        try:
+            # Handle different conditioning structures
+            if isinstance(conditioning, (list, tuple)) and len(conditioning) > 0:
+                # ComfyUI format: [tensor, metadata_dict]
+                tensor_data = conditioning[0]
+                metadata = conditioning[1] if len(conditioning) > 1 else {}
+                
+                if hasattr(tensor_data, 'shape'):
+                    shape = tensor_data.shape
+                    dtype = str(tensor_data.dtype)
+                    device = str(tensor_data.device)
+                    
+                    # Calculate tensor size in MB
+                    num_elements = tensor_data.numel()
+                    size_mb = (num_elements * tensor_data.element_size()) / (1024**2)
+                    
+                    # Determine CLIP variant based on dimensions
+                    clip_variant = self._detect_clip_variant_from_tensor(shape)
+                    
+                    # Store tensor for later comparison (dump)
+                    tensor_dump = {
+                        'shape': shape,
+                        'dtype': dtype,
+                        'device': device,
+                        'size_mb': size_mb,
+                        'num_elements': num_elements,
+                        'clip_variant': clip_variant,
+                        'tensor_data': tensor_data.detach().cpu().numpy() if hasattr(tensor_data, 'detach') else None
+                    }
+                    
+                    return {
+                        'status': 'success',
+                        'shape': shape,
+                        'dtype': dtype,
+                        'device': device,
+                        'size_mb': size_mb,
+                        'num_elements': num_elements,
+                        'clip_variant': clip_variant,
+                        'metadata': metadata,
+                        'tensor_dump': tensor_dump
+                    }
+                else:
+                    return {
+                        'status': 'failed',
+                        'error': f'Tensor data has no shape attribute: {type(tensor_data)}'
+                    }
+            else:
+                return {
+                    'status': 'failed',
+                    'error': f'Unexpected conditioning format: {type(conditioning)}'
+                }
+                
+        except Exception as e:
+            return {
+                'status': 'failed',
+                'error': f'Analysis failed: {str(e)}'
+            }
+    
+    def _detect_clip_variant_from_tensor(self, shape):
+        """Detect CLIP variant based on tensor dimensions"""
+        if len(shape) >= 2:
+            last_dim = shape[-1]
+            if last_dim == 768:
+                return "SD 1.5 CLIP"
+            elif last_dim == 1024:
+                return "SD 2.1 CLIP"
+            elif last_dim == 1280:
+                return "SDXL CLIP"
+            elif last_dim == 2048:
+                return "SD 3 / WAN T5"
+            else:
+                return f"Unknown CLIP (dim: {last_dim})"
+        return "Unknown CLIP (invalid shape)"
+    
+    def _analyze_text_processing(self, positive_prompt, negative_prompt):
+        """Analyze text processing characteristics"""
+        return {
+            'positive_prompt': {
+                'text': positive_prompt,
+                'length_chars': len(positive_prompt),
+                'length_words': len(positive_prompt.split()),
+                'special_chars': sum(1 for c in positive_prompt if not c.isalnum() and not c.isspace())
+            },
+            'negative_prompt': {
+                'text': negative_prompt,
+                'length_chars': len(negative_prompt),
+                'length_words': len(negative_prompt.split()),
+                'special_chars': sum(1 for c in negative_prompt if not c.isalnum() and not c.isspace())
+            }
+        }
+    
+    def _calculate_text_encoding_memory_change(self, baseline, current_ram, current_gpu):
+        """Calculate memory usage changes during text encoding"""
+        try:
+            # Calculate RAM changes
+            ram_changes = {
+                'used_change_mb': (current_ram.used - baseline['ram']['used_mb'] * (1024**2)) / (1024**2),
+                'available_change_mb': (current_ram.available - baseline['ram']['available_mb'] * (1024**2)) / (1024**2),
+                'current_used_mb': current_ram.used / (1024**2),
+                'current_available_mb': current_ram.available / (1024**2),
+                'current_total_mb': current_ram.total / (1024**2),
+                'current_percent_used': current_ram.percent,
+                'baseline_used_mb': baseline['ram']['used_mb'],
+                'baseline_available_mb': baseline['ram']['available_mb'],
+                'baseline_percent_used': baseline['ram']['percent_used']
+            }
+            
+            # Calculate GPU changes
+            gpu_changes = None
+            if current_gpu and baseline['gpu']:
+                allocated_change = current_gpu['allocated'] - baseline['gpu']['allocated']
+                reserved_change = current_gpu['reserved'] - baseline['gpu']['reserved']
+                
+                gpu_changes = {
+                    'allocated_change_mb': allocated_change / (1024**2),
+                    'reserved_change_mb': reserved_change / (1024**2),
+                    'current_allocated_mb': current_gpu['allocated'] / (1024**2),
+                    'current_reserved_mb': current_gpu['reserved'] / (1024**2),
+                    'current_total_mb': current_gpu['total'] / (1024**2),
+                    'baseline_allocated_mb': baseline['gpu']['allocated'] / (1024**2),
+                    'baseline_reserved_mb': baseline['gpu']['reserved'] / (1024**2),
+                    'baseline_total_mb': baseline['gpu']['total'] / (1024**2),
+                    'allocated_change_pct': (allocated_change / baseline['gpu']['allocated'] * 100) if baseline['gpu']['allocated'] > 0 else 0,
+                    'reserved_change_pct': (reserved_change / baseline['gpu']['reserved'] * 100) if baseline['gpu']['reserved'] > 0 else 0
+                }
+            
+            return {
+                'ram': ram_changes,
+                'gpu': gpu_changes
+            }
+        except Exception as e:
+            return {'error': f'Memory calculation failed: {e}'}
+    
+    def print_text_encoding_analysis_summary(self, analysis):
+        """Print comprehensive text encoding analysis"""
+        print(f"\n🔍 TEXT ENCODING ANALYSIS SUMMARY")
+        print("=" * 80)
+        
+        # Basic success info
+        print(f"✅ Text Encoding Success: {'YES' if analysis['encoding_success'] else 'NO'}")
+        print(f"⏱️  Total Execution Time: {analysis['elapsed_time']:.3f} seconds")
+        
+        # Text Processing Analysis
+        print(f"\n📝 TEXT PROCESSING ANALYSIS:")
+        text_processing = analysis['text_processing']
+        
+        positive = text_processing['positive_prompt']
+        print(f"   🔤 POSITIVE PROMPT:")
+        print(f"      Text: '{positive['text']}'")
+        print(f"      Length: {positive['length_chars']} characters, {positive['length_words']} words")
+        print(f"      Special Characters: {positive['special_chars']}")
+        
+        negative = text_processing['negative_prompt']
+        print(f"   🔤 NEGATIVE PROMPT:")
+        print(f"      Text: '{negative['text']}'")
+        print(f"      Length: {negative['length_chars']} characters, {negative['length_words']} words")
+        print(f"      Special Characters: {negative['special_chars']}")
+        
+        # Positive Conditioning Analysis
+        print(f"\n🔧 POSITIVE CONDITIONING ANALYSIS:")
+        positive_cond = analysis['positive_conditioning']
+        if positive_cond['status'] == 'success':
+            print(f"   ✅ Status: SUCCESS")
+            print(f"   📐 Shape: {positive_cond['shape']}")
+            print(f"   🏷️  Data Type: {positive_cond['dtype']}")
+            print(f"   📱 Device: {positive_cond['device']}")
+            print(f"   💾 Size: {positive_cond['size_mb']:.2f} MB")
+            print(f"   🔢 Elements: {positive_cond['num_elements']:,}")
+            print(f"   🎯 CLIP Variant: {positive_cond['clip_variant']}")
+            
+            # Store tensor dump for later comparison
+            if positive_cond['tensor_dump']:
+                print(f"   💾 Tensor Dump: Stored for comparison")
+        else:
+            print(f"   ❌ Status: FAILED")
+            print(f"   Error: {positive_cond['error']}")
+        
+        # Negative Conditioning Analysis
+        print(f"\n🔧 NEGATIVE CONDITIONING ANALYSIS:")
+        negative_cond = analysis['negative_conditioning']
+        if negative_cond['status'] == 'success':
+            print(f"   ✅ Status: SUCCESS")
+            print(f"   📐 Shape: {negative_cond['shape']}")
+            print(f"   🏷️  Data Type: {negative_cond['dtype']}")
+            print(f"   📱 Device: {negative_cond['device']}")
+            print(f"   💾 Size: {negative_cond['size_mb']:.2f} MB")
+            print(f"   🔢 Elements: {negative_cond['num_elements']:,}")
+            print(f"   🎯 CLIP Variant: {negative_cond['clip_variant']}")
+            
+            # Store tensor dump for later comparison
+            if negative_cond['tensor_dump']:
+                print(f"   💾 Tensor Dump: Stored for comparison")
+        else:
+            print(f"   ❌ Status: FAILED")
+            print(f"   Error: {negative_cond['error']}")
+        
+        # Memory Impact
+        print(f"\n💾 MEMORY IMPACT:")
+        memory_impact = analysis['memory_impact']
+        
+        if 'error' not in memory_impact:
+            # RAM Changes
+            if 'ram' in memory_impact:
+                ram = memory_impact['ram']
+                print(f"\n   🖥️  RAM CHANGES:")
+                print(f"      Used: {ram['used_change_mb']:+.1f} MB ({ram['baseline_used_mb']:.1f} → {ram['current_used_mb']:.1f} MB)")
+                print(f"      Available: {ram['available_change_mb']:+.1f} MB ({ram['baseline_available_mb']:.1f} → {ram['current_available_mb']:.1f} MB)")
+                print(f"      Usage: {ram['baseline_percent_used']:.1f}% → {ram['current_percent_used']:.1f}%")
+            
+            # GPU Changes
+            if 'gpu' in memory_impact and memory_impact['gpu']:
+                gpu = memory_impact['gpu']
+                print(f"\n   🎮 GPU CHANGES:")
+                print(f"      Allocated: {gpu['allocated_change_mb']:+.1f} MB ({gpu['baseline_allocated_mb']:.1f} → {gpu['current_allocated_mb']:.1f} MB)")
+                print(f"      Reserved: {gpu['reserved_change_mb']:+.1f} MB ({gpu['baseline_reserved_mb']:.1f} → {gpu['current_reserved_mb']:.1f} MB)")
+                print(f"      Total VRAM: {gpu['current_total_mb']:.1f} MB")
+        else:
+            print(f"   ❌ Memory calculation failed: {memory_impact['error']}")
+        
+        # Peak Memory Information
+        if 'peak_memory' in analysis:
+            print(f"\n📊 PEAK MEMORY DURING TEXT ENCODING:")
+            peak_memory = analysis['peak_memory']
+            print(f"   🖥️  RAM Peak: {peak_memory['ram_peak_mb']:.1f} MB")
+            print(f"   🎮 GPU Allocated Peak: {peak_memory['gpu_allocated_peak_mb']:.1f} MB")
+            print(f"   🎮 GPU Reserved Peak: {peak_memory['gpu_reserved_peak_mb']:.1f} MB")
+            
+            # Show peak timestamps if available
+            if peak_memory['peak_timestamps']:
+                print(f"   ⏱️  Peak Timestamps:")
+                for peak in peak_memory['peak_timestamps'][:5]:  # Show first 5 peaks
+                    print(f"      {peak['type']}: {peak['value_mb']:.1f} MB at {peak['timestamp']:.2f}s")
+        
+        print("=" * 80)
     
     def print_lora_analysis_summary(self, analysis):
         """Print comprehensive LoRA application analysis"""
@@ -1253,28 +1587,28 @@ def main():
             loadimage_4 = loadimage.load_image(image="safu.jpg")
             print("✅ Reference image loaded successfully")
             
-            # Debug: Show what was loaded
-            if loadimage_4:
-                print(f"   Image type: {type(loadimage_4)}")
-                if isinstance(loadimage_4, (list, tuple)) and len(loadimage_4) > 0:
-                    print(f"   Image data type: {type(loadimage_4[0])}")
-                    if hasattr(loadimage_4[0], 'shape'):
-                        print(f"   Image shape: {loadimage_4[0].shape}")
+                    # Debug: Show what was loaded
+        # if loadimage_4:
+        #     print(f"   Image type: {type(loadimage_4)}")
+        #     if isinstance(loadimage_4, (list, tuple)) and len(loadimage_4) > 0:
+        #         print(f"   Image data type: {type(loadimage_4[0])}")
+        #         if hasattr(loadimage_4[0], 'shape'):
+        #             print(f"   Image shape: {loadimage_4[0].shape}")
         except Exception as e:
             print(f"❌ Error loading reference image: {e}")
             loadimage_4 = None
         
         # Debug: Show video loading results
-        if vhs_loadvideo_1:
-            print(f"   Video type: {type(vhs_loadvideo_1)}")
-            if isinstance(vhs_loadvideo_1, (list, tuple)) and len(vhs_loadvideo_1) > 0:
-                print(f"   Video data type: {type(vhs_loadvideo_1[0])}")
-                if hasattr(vhs_loadvideo_1[0], 'shape'):
-                    print(f"   Video shape: {vhs_loadvideo_1[0].shape}")
-                if len(vhs_loadvideo_1) > 1:
-                    print(f"   Frame count: {vhs_loadvideo_1[1]}")
-        else:
-            print("   Video: Not loaded")
+        # if vhs_loadvideo_1:
+        #     print(f"   Video type: {type(vhs_loadvideo_1)}")
+        #     if isinstance(vhs_loadvideo_1, (list, tuple)) and len(vhs_loadvideo_1) > 0:
+        #         print(f"   Video data type: {type(vhs_loadvideo_1[0])}")
+        #         if hasattr(vhs_loadvideo_1[0], 'shape'):
+        #         print(f"   Video shape: {vhs_loadvideo_1[0].shape}")
+        #     if len(vhs_loadvideo_1) > 1:
+        #         print(f"   Frame count: {vhs_loadvideo_1[1]}")
+        # else:
+        #     print("   Video: Not loaded")
 
         # === ENHANCED MODEL LOADING WITH COMPREHENSIVE DEBUGGING ===
         
@@ -1340,7 +1674,7 @@ def main():
         # === STEP 1 END: MODEL LOADING ===
         
         # Debug execution stopped - continuing to step 2
-        print("\n🔍 Step 1 debugging complete - continuing to LoRA application...")
+        # print("\n🔍 Step 1 debugging complete - continuing to LoRA application...")
 
         # === STEP 2 START: LORA APPLICATION ===
         print("2. Applying LoRA...")
@@ -1363,20 +1697,20 @@ def main():
             print(f"   ⚠️  LoRA file not found - will attempt to continue but may fail")
             print(f"   💡 Make sure 'lora.safetensors' exists in the current directory")
         
-        lora_baseline = model_monitor.capture_lora_baseline(
-            unet_model_baseline, 
-            clip_model_baseline
-        )
+        # lora_baseline = model_monitor.capture_lora_baseline(
+        #     unet_model_baseline, 
+        #     clip_model_baseline
+        # )
         
-        print(f"   ✅ UNET Baseline captured - ID: {lora_baseline['unet']['model_id']}, Patches: {lora_baseline['unet']['patches_count']}")
-        print(f"   ✅ CLIP Baseline captured - ID: {lora_baseline['clip']['model_id']}, Patches: {lora_baseline['clip']['patcher_patches_count']}")
+        # print(f"   ✅ UNET Baseline captured - ID: {lora_baseline['unet']['model_id']}, Patches: {lora_baseline['unet']['patches_count']}")
+        # print(f"   ✅ CLIP Baseline captured - ID: {lora_baseline['clip']['model_id']}, Patches: {lora_baseline['clip']['patcher_patches_count']}")
         
         # Display baseline memory information
-        print(f"\n   💾 BASELINE MEMORY STATE:")
-        print(f"      🖥️  RAM: {lora_baseline['ram']['used_mb']:.1f} MB used / {lora_baseline['ram']['total_mb']:.1f} MB total ({lora_baseline['ram']['percent_used']:.1f}%)")
-        if lora_baseline['gpu']:
-            print(f"      🎮 GPU: {lora_baseline['gpu']['allocated'] / (1024**2):.1f} MB allocated / {lora_baseline['gpu']['total'] / (1024**2):.1f} MB total")
-            print(f"      🎮 GPU Device: {lora_baseline['gpu']['device_name']}")
+        # print(f"\n   💾 BASELINE MEMORY STATE:")
+        # print(f"      🖥️  RAM: {lora_baseline['ram']['used_mb']:.1f} MB used / {lora_baseline['ram']['total_mb']:.1f} MB total ({lora_baseline['ram']['percent_used']:.1f}%)")
+        # if lora_baseline['gpu']:
+        #     print(f"      🎮 GPU: {lora_baseline['gpu']['allocated'] / (1024**2):.1f} MB allocated / {lora_baseline['gpu']['total'] / (1024**2):.1f} MB total")
+        #     print(f"      🎮 GPU Device: {lora_baseline['gpu']['device_name']}")
         
         # Check if we can proceed with LoRA application
         if not lora_file_exists:
@@ -1391,10 +1725,10 @@ def main():
             print("\n🔧 APPLYING LORA TO MODELS...")
             
             # Start monitoring peak memory during LoRA application
-            model_monitor.start_monitoring("lora_application")
+            # model_monitor.start_monitoring("lora_application")
             
             # Update peak memory before LoRA application
-            model_monitor.update_peak_memory()
+            # model_monitor.update_peak_memory()
             
             loraloader = LoraLoader()
             loraloader_24 = loraloader.load_lora(
@@ -1406,39 +1740,39 @@ def main():
             )
             
             # Update peak memory after LoRA application
-            model_monitor.update_peak_memory()
+            # model_monitor.update_peak_memory()
             
             # Extract modified models from result
             modified_unet = get_value_at_index(loraloader_24, 0)
             modified_clip = get_value_at_index(loraloader_24, 1)
             
             # Update peak memory after model extraction
-            model_monitor.update_peak_memory()
+            # model_monitor.update_peak_memory()
             
             # End monitoring and get peak memory summary
-            elapsed_time = model_monitor.end_monitoring("lora_application", loraloader_24, "LoRA_Result")
-            peak_memory_summary = model_monitor.get_peak_memory_summary()
+            # elapsed_time = model_monitor.end_monitoring("lora_application", loraloader_24, "LoRA_Result")
+            # peak_memory_summary = model_monitor.get_peak_memory_summary()
             
             # Analyze LoRA application results
-            print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
-            lora_analysis = model_monitor.analyze_lora_application_results(
-                lora_baseline, 
-                modified_unet, 
-                modified_clip, 
-                loraloader_24
-            )
+            # print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
+            # lora_analysis = model_monitor.analyze_lora_application_results(
+            #     lora_baseline, 
+            #     modified_unet, 
+            #     modified_clip, 
+            #     loraloader_24
+            # )
             
             # Print comprehensive analysis
-            model_monitor.print_lora_analysis_summary(lora_analysis)
+            # model_monitor.print_lora_analysis_summary(lora_analysis)
             
             # Print peak memory information
-            print(f"\n📊 PEAK MEMORY DURING LORA APPLICATION:")
-            print(f"   🖥️  RAM Peak: {peak_memory_summary['ram_peak_mb']:.1f} MB")
-            print(f"   🎮 GPU Allocated Peak: {peak_memory_summary['gpu_allocated_peak_mb']:.1f} MB")
-            print(f"   🎮 GPU Reserved Peak: {peak_memory_summary['gpu_reserved_peak_mb']:.1f} MB")
-            print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
+            # print(f"\n📊 PEAK MEMORY DURING LORA APPLICATION:")
+            # print(f"   🖥️  RAM Peak: {peak_memory_summary['ram_peak_mb']:.1f} MB")
+            # print(f"   🎮 GPU Allocated Peak: {peak_memory_summary['gpu_allocated_peak_mb']:.1f} MB")
+            # print(f"   🎮 GPU Reserved Peak: {peak_memory_summary['gpu_reserved_peak_mb']:.1f} MB")
+            # print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
             
-            print("✅ Step 2 completed: LoRA Application with comprehensive monitoring")
+            print("✅ Step 2 completed: LoRA Application")
             
         except Exception as e:
             print(f"❌ ERROR during LoRA application: {e}")
@@ -1447,25 +1781,123 @@ def main():
             
         # === STEP 2 END: LORA APPLICATION ===
 
-        # Stop execution after step 2 for debugging purposes
-        print("\n🛑 STOPPING EXECUTION AFTER STEP 2 (LORA APPLICATION)")
-        print("🔍 All LoRA application debugging information has been displayed above.")
-        print("📊 Check the monitoring data above to analyze LoRA application performance.")
+        # === STEP 3 START: TEXT ENCODING ===
+        print("3. Encoding text prompts...")
+        
+        # Capture baseline state before text encoding
+        print("\n🔍 CAPTURING BASELINE STATE BEFORE TEXT ENCODING...")
+        
+        # Get the modified models from LoRA application
+        if 'modified_unet' in locals() and 'modified_clip' in locals():
+            text_encoding_baseline = model_monitor.capture_text_encoding_baseline(
+                modified_unet, 
+                modified_clip
+            )
+            
+            print(f"   ✅ UNET Baseline captured - ID: {text_encoding_baseline['unet']['model_id']}")
+            print(f"   ✅ CLIP Baseline captured - ID: {text_encoding_baseline['clip']['model_id']}")
+            
+            # Display baseline memory information
+            print(f"\n   💾 BASELINE MEMORY STATE:")
+            print(f"      🖥️  RAM: {text_encoding_baseline['ram']['used_mb']:.1f} MB used / {text_encoding_baseline['ram']['total_mb']:.1f} MB total ({text_encoding_baseline['ram']['percent_used']:.1f}%)")
+            if text_encoding_baseline['gpu']:
+                print(f"      🎮 GPU: {text_encoding_baseline['gpu']['allocated'] / (1024**2):.1f} MB allocated / {text_encoding_baseline['gpu']['total'] / (1024**2):.1f} MB total")
+        else:
+            print("❌ ERROR: Modified models not available from LoRA application")
+            print("🔍 Cannot proceed with text encoding - check LoRA application step")
+            return
+        
+        # Define text prompts for encoding
+        positive_prompt = "a beautiful landscape with mountains and trees, high quality, detailed"
+        negative_prompt = "blurry, low quality, distorted, ugly"
+        
+        print(f"\n📝 TEXT PROMPTS FOR ENCODING:")
+        print(f"   Positive: '{positive_prompt}'")
+        print(f"   Negative: '{negative_prompt}'")
+        
+        # Apply text encoding with monitoring
+        try:
+            print("\n🔧 ENCODING TEXT PROMPTS...")
+            
+            # Start monitoring peak memory during text encoding
+            model_monitor.start_monitoring("text_encoding")
+            
+            # Update peak memory before text encoding
+            model_monitor.update_peak_memory()
+            
+            # Create text encoder and encode positive prompt
+            print("   🔤 Encoding positive prompt...")
+            cliptextencode = CLIPTextEncode()
+            positive_cond_tuple = cliptextencode.encode(modified_clip, positive_prompt)
+            
+            # Update peak memory after positive encoding
+            model_monitor.update_peak_memory()
+            
+            # Encode negative prompt
+            print("   🔤 Encoding negative prompt...")
+            negative_cond_tuple = cliptextencode.encode(modified_clip, negative_prompt)
+            
+            # Update peak memory after negative encoding
+            model_monitor.update_peak_memory()
+            
+            # Extract conditioning from tuples
+            positive_cond = positive_cond_tuple[0] if positive_cond_tuple else None
+            negative_cond = negative_cond_tuple[0] if negative_cond_tuple else None
+            
+            # End monitoring and get peak memory summary
+            elapsed_time = model_monitor.end_monitoring("text_encoding", [positive_cond, negative_cond], "TextEncoding_Result")
+            peak_memory_summary = model_monitor.get_peak_memory_summary()
+            
+            # Analyze text encoding results
+            print("\n🔍 ANALYZING TEXT ENCODING RESULTS...")
+            text_encoding_analysis = model_monitor.analyze_text_encoding_results(
+                text_encoding_baseline, 
+                positive_cond, 
+                negative_cond, 
+                positive_prompt,
+                negative_prompt,
+                elapsed_time
+            )
+            
+            # Print comprehensive analysis
+            model_monitor.print_text_encoding_analysis_summary(text_encoding_analysis)
+            
+            # Print peak memory information
+            print(f"\n📊 PEAK MEMORY DURING TEXT ENCODING:")
+            print(f"   🖥️  RAM Peak: {peak_memory_summary['ram_peak_mb']:.1f} MB")
+            print(f"   🎮 GPU Allocated Peak: {peak_memory_summary['gpu_allocated_peak_mb']:.1f} MB")
+            print(f"   🎮 GPU Reserved Peak: {peak_memory_summary['gpu_reserved_peak_mb']:.1f} MB")
+            print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
+            
+            print("✅ Step 3 completed: Text Encoding with comprehensive monitoring")
+            
+        except Exception as e:
+            print(f"❌ ERROR during text encoding: {e}")
+            print("🔍 Text encoding failed - check error details above")
+            positive_cond = None
+            negative_cond = None
+            
+        # === STEP 3 END: TEXT ENCODING ===
+
+        # Stop execution after step 3 for debugging purposes
+        print("\n🛑 STOPPING EXECUTION AFTER STEP 3 (TEXT ENCODING)")
+        print("🔍 All text encoding debugging information has been displayed above.")
+        print("📊 Check the monitoring data above to analyze text encoding performance.")
         print("🔍 Step 1: Model Loading - COMPLETED")
         print("🔍 Step 2: LoRA Application - COMPLETED")
-        print("🔍 Steps 3-9: SKIPPED for debugging purposes")
+        print("🔍 Step 3: Text Encoding - COMPLETED")
+        print("🔍 Steps 4-9: SKIPPED for debugging purposes")
         
         # === FINAL MONITORING SUMMARY ===
         print("\n" + "="*80)
         print("🔍 FINAL WORKFLOW MONITORING SUMMARY")
         print("="*80)
         
-        # Use comprehensive summary if LoRA analysis is available
-        if 'lora_analysis' in locals():
-            model_monitor.print_comprehensive_summary(lora_analysis)
+        # Use comprehensive summary if analyses are available
+        if 'text_encoding_analysis' in locals():
+            model_monitor.print_comprehensive_summary(None, text_encoding_analysis)
         else:
-            model_monitor.print_summary()
-            print("\n⚠️  LoRA analysis not available - step 2 may not have completed")
+            print("\n⚠️  Text encoding analysis not available - step 3 may not have completed")
         
         print("="*80)
         
