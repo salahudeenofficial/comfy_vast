@@ -5,6 +5,7 @@ import time
 import psutil
 from typing import Sequence, Mapping, Any, Union
 import torch
+import numpy as np
 
 # Direct imports for VHS functionality
 VHS_AVAILABLE = False
@@ -89,6 +90,43 @@ class ModelLoadingMonitor:
         self.baseline_gpu = None
         self.monitoring_data = {}
         self.step_start_time = None
+        
+        # Create output directories for tensor dumps
+        self._create_output_directories()
+    
+    def _create_output_directories(self):
+        """Create output directories for tensor dumps and analysis"""
+        output_dirs = [
+            "./W_out",
+            "./W_out/step3"
+        ]
+        
+        for output_dir in output_dirs:
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                print(f"📁 Created output directory: {output_dir}")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not create directory {output_dir}: {e}")
+    
+    def _debug_conditioning_structure(self, conditioning, tensor_type):
+        """Debug helper to understand conditioning structure"""
+        print(f"\n🔍 DEBUGGING {tensor_type.upper()} CONDITIONING STRUCTURE:")
+        print(f"   Type: {type(conditioning).__name__}")
+        print(f"   Repr: {repr(conditioning)[:200]}...")
+        
+        if hasattr(conditioning, '__len__'):
+            print(f"   Length: {len(conditioning)}")
+            if len(conditioning) > 0:
+                print(f"   First item type: {type(conditioning[0]).__name__}")
+                if hasattr(conditioning[0], 'shape'):
+                    print(f"   First item shape: {conditioning[0].shape}")
+                else:
+                    print(f"   First item attributes: {[attr for attr in dir(conditioning[0]) if not attr.startswith('_')][:10]}")
+        
+        if hasattr(conditioning, '__dir__'):
+            print(f"   Available attributes: {[attr for attr in dir(conditioning) if not attr.startswith('_')][:10]}")
+        
+        print("=" * 60)
     
     def start_monitoring(self, step_name):
         """Start monitoring a specific step"""
@@ -967,26 +1005,80 @@ class ModelLoadingMonitor:
                 'error': 'Conditioning tensor is None'
             }
         
+        # First, debug the conditioning structure to understand it
+        self._debug_conditioning_structure(conditioning, tensor_type)
+        
         try:
-            # Handle different conditioning structures
-            if isinstance(conditioning, (list, tuple)) and len(conditioning) > 0:
-                # ComfyUI format: [tensor, metadata_dict]
-                tensor_data = conditioning[0]
-                metadata = conditioning[1] if len(conditioning) > 1 else {}
+            # Handle different conditioning structures from ComfyUI
+            tensor_data = None
+            metadata = {}
+            
+            # Strategy 1: Direct tensor
+            if hasattr(conditioning, 'shape'):
+                tensor_data = conditioning
+                metadata = {}
+                print(f"   ✅ Found direct tensor with shape: {tensor_data.shape}")
+            
+            # Strategy 2: List/tuple format [tensor, metadata]
+            elif isinstance(conditioning, (list, tuple)) and len(conditioning) > 0:
+                if hasattr(conditioning[0], 'shape'):
+                    tensor_data = conditioning[0]
+                    metadata = conditioning[1] if len(conditioning) > 1 else {}
+                    print(f"   ✅ Found tensor in list[0] with shape: {tensor_data.shape}")
+                else:
+                    # Try to find tensor in the list
+                    for i, item in enumerate(conditioning):
+                        if hasattr(item, 'shape'):
+                            tensor_data = item
+                            metadata = {f'list_index_{i}': item for j, item in enumerate(conditioning) if j != i}
+                            print(f"   ✅ Found tensor in list[{i}] with shape: {tensor_data.shape}")
+                            break
+            
+            # Strategy 3: Dictionary format
+            elif isinstance(conditioning, dict):
+                # Look for tensor-like objects in the dictionary
+                for key, value in conditioning.items():
+                    if hasattr(value, 'shape'):
+                        tensor_data = value
+                        metadata = {k: v for k, v in conditioning.items() if k != key}
+                        print(f"   ✅ Found tensor in dict['{key}'] with shape: {tensor_data.shape}")
+                        break
+            
+            # If we found tensor data, analyze it
+            if tensor_data is not None and hasattr(tensor_data, 'shape'):
+                shape = tensor_data.shape
+                dtype = str(tensor_data.dtype)
+                device = str(tensor_data.device)
                 
-                if hasattr(tensor_data, 'shape'):
-                    shape = tensor_data.shape
-                    dtype = str(tensor_data.dtype)
-                    device = str(tensor_data.device)
+                # Calculate tensor size in MB
+                num_elements = tensor_data.numel()
+                size_mb = (num_elements * tensor_data.element_size()) / (1024**2)
+                
+                # Determine CLIP variant based on dimensions
+                clip_variant = self._detect_clip_variant_from_tensor(shape)
+                
+                # Create output directory for tensor dumps
+                output_dir = "./W_out/step3"
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Generate filename for tensor dump
+                timestamp = int(time.time())
+                tensor_filename = f"{tensor_type.lower()}_conditioning_{timestamp}.npy"
+                tensor_filepath = os.path.join(output_dir, tensor_filename)
+                
+                # Store tensor for later comparison (dump to file)
+                try:
+                    # Convert to numpy and save
+                    if hasattr(tensor_data, 'detach'):
+                        numpy_tensor = tensor_data.detach().cpu().numpy()
+                    elif hasattr(tensor_data, 'cpu'):
+                        numpy_tensor = tensor_data.cpu().numpy()
+                    else:
+                        numpy_tensor = tensor_data.numpy()
                     
-                    # Calculate tensor size in MB
-                    num_elements = tensor_data.numel()
-                    size_mb = (num_elements * tensor_data.element_size()) / (1024**2)
+                    # Save tensor to file
+                    np.save(tensor_filepath, numpy_tensor)
                     
-                    # Determine CLIP variant based on dimensions
-                    clip_variant = self._detect_clip_variant_from_tensor(shape)
-                    
-                    # Store tensor for later comparison (dump)
                     tensor_dump = {
                         'shape': shape,
                         'dtype': dtype,
@@ -994,35 +1086,59 @@ class ModelLoadingMonitor:
                         'size_mb': size_mb,
                         'num_elements': num_elements,
                         'clip_variant': clip_variant,
-                        'tensor_data': tensor_data.detach().cpu().numpy() if hasattr(tensor_data, 'detach') else None
+                        'filepath': tensor_filepath,
+                        'filename': tensor_filename,
+                        'numpy_shape': numpy_tensor.shape,
+                        'numpy_dtype': str(numpy_tensor.dtype)
                     }
                     
-                    return {
-                        'status': 'success',
+                    print(f"   💾 Tensor dumped to: {tensor_filepath}")
+                    print(f"   📊 Tensor info: {shape}, {dtype}, {size_mb:.2f} MB")
+                    
+                except Exception as dump_error:
+                    print(f"   ⚠️  Warning: Could not dump tensor: {dump_error}")
+                    tensor_dump = {
                         'shape': shape,
                         'dtype': dtype,
                         'device': device,
                         'size_mb': size_mb,
                         'num_elements': num_elements,
                         'clip_variant': clip_variant,
-                        'metadata': metadata,
-                        'tensor_dump': tensor_dump
+                        'filepath': 'FAILED',
+                        'error': str(dump_error)
                     }
-                else:
-                    return {
-                        'status': 'failed',
-                        'error': f'Tensor data has no shape attribute: {type(tensor_data)}'
-                    }
+                
+                return {
+                    'status': 'success',
+                    'shape': shape,
+                    'dtype': dtype,
+                    'device': device,
+                    'size_mb': size_mb,
+                    'num_elements': num_elements,
+                    'clip_variant': clip_variant,
+                    'metadata': metadata,
+                    'tensor_dump': tensor_dump
+                }
             else:
+                # Debug information about the conditioning structure
+                debug_info = {
+                    'type': type(conditioning).__name__,
+                    'length': len(conditioning) if hasattr(conditioning, '__len__') else 'N/A',
+                    'attributes': [attr for attr in dir(conditioning) if not attr.startswith('_')][:10] if hasattr(conditioning, '__dir__') else 'N/A'
+                }
+                
                 return {
                     'status': 'failed',
-                    'error': f'Unexpected conditioning format: {type(conditioning)}'
+                    'error': f'Could not extract tensor data from conditioning structure',
+                    'debug_info': debug_info,
+                    'conditioning_type': str(type(conditioning))
                 }
                 
         except Exception as e:
             return {
                 'status': 'failed',
-                'error': f'Analysis failed: {str(e)}'
+                'error': f'Analysis failed: {str(e)}',
+                'traceback': str(e)
             }
     
     def _detect_clip_variant_from_tensor(self, shape):
@@ -1180,6 +1296,63 @@ class ModelLoadingMonitor:
         else:
             print(f"   ❌ Status: FAILED")
             print(f"   Error: {negative_cond.get('error', 'Unknown error')}")
+        
+        # Tensor Dump Summary
+        print(f"\n💾 TENSOR DUMP SUMMARY:")
+        print(f"   📁 Output Directory: ./W_out/step3/")
+        
+        # Check what tensors were successfully dumped
+        dumped_tensors = []
+        if positive_cond and positive_cond.get('status') == 'success' and positive_cond.get('tensor_dump'):
+            tensor_dump = positive_cond['tensor_dump']
+            if tensor_dump.get('filepath') and tensor_dump.get('filepath') != 'FAILED':
+                dumped_tensors.append({
+                    'type': 'Positive',
+                    'filepath': tensor_dump['filepath'],
+                    'filename': tensor_dump['filename'],
+                    'shape': positive_cond.get('shape'),
+                    'size_mb': positive_cond.get('size_mb', 0)
+                })
+        
+        if negative_cond and negative_cond.get('status') == 'success' and negative_cond.get('tensor_dump'):
+            tensor_dump = negative_cond['tensor_dump']
+            if tensor_dump.get('filepath') and tensor_dump.get('filepath') != 'FAILED':
+                dumped_tensors.append({
+                    'type': 'Negative',
+                    'filepath': tensor_dump['filepath'],
+                    'filename': tensor_dump['filename'],
+                    'shape': negative_cond.get('shape'),
+                    'size_mb': negative_cond.get('size_mb', 0)
+                })
+        
+        if dumped_tensors:
+            print(f"   ✅ Successfully dumped {len(dumped_tensors)} tensors:")
+            for tensor in dumped_tensors:
+                print(f"      {tensor['type']}: {tensor['filename']}")
+                print(f"         Shape: {tensor['shape']}, Size: {tensor['size_mb']:.2f} MB")
+                print(f"         Path: {tensor['filepath']}")
+        else:
+            print(f"   ❌ No tensors were successfully dumped")
+            print(f"   💡 Check the error messages above for details")
+        
+        # Show output directory contents
+        output_dir = "./W_out/step3"
+        if os.path.exists(output_dir):
+            try:
+                files = os.listdir(output_dir)
+                if files:
+                    print(f"\n   📂 Output directory contents:")
+                    for file in sorted(files):
+                        filepath = os.path.join(output_dir, file)
+                        if os.path.isfile(filepath):
+                            size_mb = os.path.getsize(filepath) / (1024**2)
+                            print(f"      📄 {file} ({size_mb:.2f} MB)")
+                else:
+                    print(f"\n   📂 Output directory is empty")
+            except Exception as e:
+                print(f"\n   ⚠️  Could not read output directory: {e}")
+        else:
+            print(f"\n   📂 Output directory does not exist")
         
         # Memory Impact
         print(f"\n💾 MEMORY IMPACT:")
