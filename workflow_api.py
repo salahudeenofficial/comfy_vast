@@ -859,6 +859,10 @@ class ModelLoadingMonitor:
     def analyze_text_encoding_results(self, baseline, positive_cond, negative_cond, positive_prompt, negative_prompt, elapsed_time):
         """Analyze the results of text encoding"""
         
+        # Check if baseline is available
+        if baseline is None:
+            print("⚠️  WARNING: Baseline not available - using limited analysis")
+        
         # Get current memory state
         current_ram = psutil.virtual_memory()
         current_gpu = None
@@ -998,24 +1002,29 @@ class ModelLoadingMonitor:
     def _calculate_text_encoding_memory_change(self, baseline, current_ram, current_gpu):
         """Calculate memory usage changes during text encoding"""
         try:
+            # Check if baseline is available
+            if baseline is None:
+                return {'error': 'Baseline not available for memory calculation'}
+            
             # Calculate RAM changes
             ram_changes = {
-                'used_change_mb': (current_ram.used - baseline['ram']['used_mb'] * (1024**2)) / (1024**2),
-                'available_change_mb': (current_ram.available - baseline['ram']['available_mb'] * (1024**2)) / (1024**2),
+                'used_change_mb': (current_ram.used - baseline.get('ram', {}).get('used_mb', 0) * (1024**2)) / (1024**2),
+                'available_change_mb': (current_ram.available - baseline.get('ram', {}).get('available_mb', 0) * (1024**2)) / (1024**2),
                 'current_used_mb': current_ram.used / (1024**2),
                 'current_available_mb': current_ram.available / (1024**2),
                 'current_total_mb': current_ram.total / (1024**2),
                 'current_percent_used': current_ram.percent,
-                'baseline_used_mb': baseline['ram']['used_mb'],
-                'baseline_available_mb': baseline['ram']['available_mb'],
-                'baseline_percent_used': baseline['ram']['percent_used']
+                'baseline_used_mb': baseline.get('ram', {}).get('used_mb', 0),
+                'baseline_available_mb': baseline.get('ram', {}).get('available_mb', 0),
+                'baseline_percent_used': baseline.get('ram', {}).get('percent_used', 0)
             }
             
             # Calculate GPU changes
             gpu_changes = None
-            if current_gpu and baseline['gpu']:
-                allocated_change = current_gpu['allocated'] - baseline['gpu']['allocated']
-                reserved_change = current_gpu['reserved'] - baseline['gpu']['reserved']
+            if current_gpu and baseline.get('gpu'):
+                baseline_gpu = baseline['gpu']
+                allocated_change = current_gpu['allocated'] - baseline_gpu.get('allocated', 0)
+                reserved_change = current_gpu['reserved'] - baseline_gpu.get('reserved', 0)
                 
                 gpu_changes = {
                     'allocated_change_mb': allocated_change / (1024**2),
@@ -1023,11 +1032,11 @@ class ModelLoadingMonitor:
                     'current_allocated_mb': current_gpu['allocated'] / (1024**2),
                     'current_reserved_mb': current_gpu['reserved'] / (1024**2),
                     'current_total_mb': current_gpu['total'] / (1024**2),
-                    'baseline_allocated_mb': baseline['gpu']['allocated'] / (1024**2),
-                    'baseline_reserved_mb': baseline['gpu']['reserved'] / (1024**2),
-                    'baseline_total_mb': baseline['gpu']['total'] / (1024**2),
-                    'allocated_change_pct': (allocated_change / baseline['gpu']['allocated'] * 100) if baseline['gpu']['allocated'] > 0 else 0,
-                    'reserved_change_pct': (reserved_change / baseline['gpu']['reserved'] * 100) if baseline['gpu']['reserved'] > 0 else 0
+                    'baseline_allocated_mb': baseline_gpu.get('allocated', 0) / (1024**2),
+                    'baseline_reserved_mb': baseline_gpu.get('reserved', 0) / (1024**2),
+                    'baseline_total_mb': baseline_gpu.get('total', 0) / (1024**2),
+                    'allocated_change_pct': (allocated_change / baseline_gpu.get('allocated', 1) * 100) if baseline_gpu.get('allocated', 0) > 0 else 0,
+                    'reserved_change_pct': (reserved_change / baseline_gpu.get('reserved', 1) * 100) if baseline_gpu.get('reserved', 0) > 0 else 0
                 }
             
             return {
@@ -1042,100 +1051,119 @@ class ModelLoadingMonitor:
         print(f"\n🔍 TEXT ENCODING ANALYSIS SUMMARY")
         print("=" * 80)
         
+        # Check if analysis is None or invalid
+        if analysis is None:
+            print("❌ ERROR: Text encoding analysis is None")
+            print("   This indicates the text encoding step failed or analysis was not generated")
+            print("=" * 80)
+            return
+        
         # Basic success info
-        print(f"✅ Text Encoding Success: {'YES' if analysis['encoding_success'] else 'NO'}")
-        print(f"⏱️  Total Execution Time: {analysis['elapsed_time']:.3f} seconds")
+        print(f"✅ Text Encoding Success: {'YES' if analysis.get('encoding_success', False) else 'NO'}")
+        print(f"⏱️  Total Execution Time: {analysis.get('elapsed_time', 0):.3f} seconds")
         
         # Text Processing Analysis
         print(f"\n📝 TEXT PROCESSING ANALYSIS:")
-        text_processing = analysis['text_processing']
-        
-        positive = text_processing['positive_prompt']
-        print(f"   🔤 POSITIVE PROMPT:")
-        print(f"      Text: '{positive['text']}'")
-        print(f"      Length: {positive['length_chars']} characters, {positive['length_words']} words")
-        print(f"      Special Characters: {positive['special_chars']}")
-        
-        negative = text_processing['negative_prompt']
-        print(f"   🔤 NEGATIVE PROMPT:")
-        print(f"      Text: '{negative['text']}'")
-        print(f"      Length: {negative['length_chars']} characters, {negative['length_words']} words")
-        print(f"      Special Characters: {negative['special_chars']}")
+        text_processing = analysis.get('text_processing')
+        if text_processing is None:
+            print("   ❌ ERROR: Text processing analysis not available")
+        else:
+            positive = text_processing.get('positive_prompt', {})
+            print(f"   🔤 POSITIVE PROMPT:")
+            print(f"      Text: '{positive.get('text', 'N/A')}'")
+            print(f"      Length: {positive.get('length_chars', 0)} characters, {positive.get('length_words', 0)} words")
+            print(f"      Special Characters: {positive.get('special_chars', 0)}")
+            
+            negative = text_processing.get('negative_prompt', {})
+            print(f"   🔤 NEGATIVE PROMPT:")
+            print(f"      Text: '{negative.get('text', 'N/A')}'")
+            print(f"      Length: {negative.get('length_chars', 0)} characters, {negative.get('length_words', 0)} words")
+            print(f"      Special Characters: {negative.get('special_chars', 0)}")
         
         # Positive Conditioning Analysis
         print(f"\n🔧 POSITIVE CONDITIONING ANALYSIS:")
-        positive_cond = analysis['positive_conditioning']
-        if positive_cond['status'] == 'success':
+        positive_cond = analysis.get('positive_conditioning')
+        if positive_cond is None:
+            print("   ❌ ERROR: Positive conditioning analysis not available")
+        elif positive_cond.get('status') == 'success':
             print(f"   ✅ Status: SUCCESS")
-            print(f"   📐 Shape: {positive_cond['shape']}")
-            print(f"   🏷️  Data Type: {positive_cond['dtype']}")
-            print(f"   📱 Device: {positive_cond['device']}")
-            print(f"   💾 Size: {positive_cond['size_mb']:.2f} MB")
-            print(f"   🔢 Elements: {positive_cond['num_elements']:,}")
-            print(f"   🎯 CLIP Variant: {positive_cond['clip_variant']}")
+            print(f"   📐 Shape: {positive_cond.get('shape', 'N/A')}")
+            print(f"   🏷️  Data Type: {positive_cond.get('dtype', 'N/A')}")
+            print(f"   📱 Device: {positive_cond.get('device', 'N/A')}")
+            print(f"   💾 Size: {positive_cond.get('size_mb', 0):.2f} MB")
+            print(f"   🔢 Elements: {positive_cond.get('num_elements', 0):,}")
+            print(f"   🎯 CLIP Variant: {positive_cond.get('clip_variant', 'N/A')}")
             
             # Store tensor dump for later comparison
-            if positive_cond['tensor_dump']:
+            if positive_cond.get('tensor_dump'):
                 print(f"   💾 Tensor Dump: Stored for comparison")
         else:
             print(f"   ❌ Status: FAILED")
-            print(f"   Error: {positive_cond['error']}")
+            print(f"   Error: {positive_cond.get('error', 'Unknown error')}")
         
         # Negative Conditioning Analysis
         print(f"\n🔧 NEGATIVE CONDITIONING ANALYSIS:")
-        negative_cond = analysis['negative_conditioning']
-        if negative_cond['status'] == 'success':
+        negative_cond = analysis.get('negative_conditioning')
+        if negative_cond is None:
+            print("   ❌ ERROR: Negative conditioning analysis not available")
+        elif negative_cond.get('status') == 'success':
             print(f"   ✅ Status: SUCCESS")
-            print(f"   📐 Shape: {negative_cond['shape']}")
-            print(f"   🏷️  Data Type: {negative_cond['dtype']}")
-            print(f"   📱 Device: {negative_cond['device']}")
-            print(f"   💾 Size: {negative_cond['size_mb']:.2f} MB")
-            print(f"   🔢 Elements: {negative_cond['num_elements']:,}")
-            print(f"   🎯 CLIP Variant: {negative_cond['clip_variant']}")
+            print(f"   📐 Shape: {negative_cond.get('shape', 'N/A')}")
+            print(f"   🏷️  Data Type: {negative_cond.get('dtype', 'N/A')}")
+            print(f"   📱 Device: {negative_cond.get('device', 'N/A')}")
+            print(f"   💾 Size: {negative_cond.get('size_mb', 0):.2f} MB")
+            print(f"   🔢 Elements: {negative_cond.get('num_elements', 0):,}")
+            print(f"   🎯 CLIP Variant: {negative_cond.get('clip_variant', 'N/A')}")
             
             # Store tensor dump for later comparison
-            if negative_cond['tensor_dump']:
+            if negative_cond.get('tensor_dump'):
                 print(f"   💾 Tensor Dump: Stored for comparison")
         else:
             print(f"   ❌ Status: FAILED")
-            print(f"   Error: {negative_cond['error']}")
+            print(f"   Error: {negative_cond.get('error', 'Unknown error')}")
         
         # Memory Impact
         print(f"\n💾 MEMORY IMPACT:")
-        memory_impact = analysis['memory_impact']
+        memory_impact = analysis.get('memory_impact')
         
-        if 'error' not in memory_impact:
+        if memory_impact is None:
+            print("   ❌ ERROR: Memory impact analysis not available")
+        elif 'error' not in memory_impact:
             # RAM Changes
             if 'ram' in memory_impact:
                 ram = memory_impact['ram']
                 print(f"\n   🖥️  RAM CHANGES:")
-                print(f"      Used: {ram['used_change_mb']:+.1f} MB ({ram['baseline_used_mb']:.1f} → {ram['current_used_mb']:.1f} MB)")
-                print(f"      Available: {ram['available_change_mb']:+.1f} MB ({ram['baseline_available_mb']:.1f} → {ram['current_available_mb']:.1f} MB)")
-                print(f"      Usage: {ram['baseline_percent_used']:.1f}% → {ram['current_percent_used']:.1f}%")
+                print(f"      Used: {ram.get('used_change_mb', 0):+.1f} MB ({ram.get('baseline_used_mb', 0):.1f} → {ram.get('current_used_mb', 0):.1f} MB)")
+                print(f"      Available: {ram.get('available_change_mb', 0):+.1f} MB ({ram.get('baseline_available_mb', 0):.1f} → {ram.get('current_available_mb', 0):.1f} MB)")
+                print(f"      Usage: {ram.get('baseline_percent_used', 0):.1f}% → {ram.get('current_percent_used', 0):.1f}%")
             
             # GPU Changes
             if 'gpu' in memory_impact and memory_impact['gpu']:
                 gpu = memory_impact['gpu']
                 print(f"\n   🎮 GPU CHANGES:")
-                print(f"      Allocated: {gpu['allocated_change_mb']:+.1f} MB ({gpu['baseline_allocated_mb']:.1f} → {gpu['current_allocated_mb']:.1f} MB)")
-                print(f"      Reserved: {gpu['reserved_change_mb']:+.1f} MB ({gpu['baseline_reserved_mb']:.1f} → {gpu['current_reserved_mb']:.1f} MB)")
-                print(f"      Total VRAM: {gpu['current_total_mb']:.1f} MB")
+                print(f"      Allocated: {gpu.get('allocated_change_mb', 0):+.1f} MB ({gpu.get('baseline_allocated_mb', 0):.1f} → {gpu.get('current_allocated_mb', 0):.1f} MB)")
+                print(f"      Reserved: {gpu.get('reserved_change_mb', 0):+.1f} MB ({gpu.get('baseline_reserved_mb', 0):.1f} → {gpu.get('current_reserved_mb', 0):.1f} MB)")
+                print(f"      Total VRAM: {gpu.get('current_total_mb', 0):.1f} MB")
         else:
-            print(f"   ❌ Memory calculation failed: {memory_impact['error']}")
+            print(f"   ❌ Memory calculation failed: {memory_impact.get('error', 'Unknown error')}")
         
         # Peak Memory Information
-        if 'peak_memory' in analysis:
+        peak_memory = analysis.get('peak_memory')
+        if peak_memory is None:
             print(f"\n📊 PEAK MEMORY DURING TEXT ENCODING:")
-            peak_memory = analysis['peak_memory']
-            print(f"   🖥️  RAM Peak: {peak_memory['ram_peak_mb']:.1f} MB")
-            print(f"   🎮 GPU Allocated Peak: {peak_memory['gpu_allocated_peak_mb']:.1f} MB")
-            print(f"   🎮 GPU Reserved Peak: {peak_memory['gpu_reserved_peak_mb']:.1f} MB")
+            print("   ❌ ERROR: Peak memory information not available")
+        else:
+            print(f"\n📊 PEAK MEMORY DURING TEXT ENCODING:")
+            print(f"   🖥️  RAM Peak: {peak_memory.get('ram_peak_mb', 0):.1f} MB")
+            print(f"   🎮 GPU Allocated Peak: {peak_memory.get('gpu_allocated_peak_mb', 0):.1f} MB")
+            print(f"   🎮 GPU Reserved Peak: {peak_memory.get('gpu_reserved_peak_mb', 0):.1f} MB")
             
             # Show peak timestamps if available
-            if peak_memory['peak_timestamps']:
+            peak_timestamps = peak_memory.get('peak_timestamps')
+            if peak_timestamps:
                 print(f"   ⏱️  Peak Timestamps:")
-                for peak in peak_memory['peak_timestamps'][:5]:  # Show first 5 peaks
-                    print(f"      {peak['type']}: {peak['value_mb']:.1f} MB at {peak['timestamp']:.2f}s")
+                for peak in peak_timestamps[:5]:  # Show first 5 peaks
+                    print(f"      {peak.get('type', 'unknown')}: {peak.get('value_mb', 0):.1f} MB at {peak.get('timestamp', 0):.2f}s")
         
         print("=" * 80)
     
@@ -1789,19 +1817,26 @@ def main():
         
         # Get the modified models from LoRA application
         if 'modified_unet' in locals() and 'modified_clip' in locals():
-            text_encoding_baseline = model_monitor.capture_text_encoding_baseline(
-                modified_unet, 
-                modified_clip
-            )
-            
-            print(f"   ✅ UNET Baseline captured - ID: {text_encoding_baseline['unet']['model_id']}")
-            print(f"   ✅ CLIP Baseline captured - ID: {text_encoding_baseline['clip']['model_id']}")
-            
-            # Display baseline memory information
-            print(f"\n   💾 BASELINE MEMORY STATE:")
-            print(f"      🖥️  RAM: {text_encoding_baseline['ram']['used_mb']:.1f} MB used / {text_encoding_baseline['ram']['total_mb']:.1f} MB total ({text_encoding_baseline['ram']['percent_used']:.1f}%)")
-            if text_encoding_baseline['gpu']:
-                print(f"      🎮 GPU: {text_encoding_baseline['gpu']['allocated'] / (1024**2):.1f} MB allocated / {text_encoding_baseline['gpu']['total'] / (1024**2):.1f} MB total")
+            try:
+                text_encoding_baseline = model_monitor.capture_text_encoding_baseline(
+                    modified_unet, 
+                    modified_clip
+                )
+                
+                print(f"   ✅ UNET Baseline captured - ID: {text_encoding_baseline.get('unet', {}).get('model_id', 'N/A')}")
+                print(f"   ✅ CLIP Baseline captured - ID: {text_encoding_baseline.get('clip', {}).get('model_id', 'N/A')}")
+                
+                # Display baseline memory information
+                print(f"\n   💾 BASELINE MEMORY STATE:")
+                ram_info = text_encoding_baseline.get('ram', {})
+                print(f"      🖥️  RAM: {ram_info.get('used_mb', 0):.1f} MB used / {ram_info.get('total_mb', 0):.1f} MB total ({ram_info.get('percent_used', 0):.1f}%)")
+                gpu_info = text_encoding_baseline.get('gpu')
+                if gpu_info:
+                    print(f"      🎮 GPU: {gpu_info.get('allocated', 0) / (1024**2):.1f} MB allocated / {gpu_info.get('total', 0) / (1024**2):.1f} MB total")
+            except Exception as e:
+                print(f"❌ ERROR during baseline capture: {e}")
+                print("🔍 Baseline capture failed - will continue with limited monitoring")
+                text_encoding_baseline = None
         else:
             print("❌ ERROR: Modified models not available from LoRA application")
             print("🔍 Cannot proceed with text encoding - check LoRA application step")
@@ -1850,23 +1885,31 @@ def main():
             
             # Analyze text encoding results
             print("\n🔍 ANALYZING TEXT ENCODING RESULTS...")
-            text_encoding_analysis = model_monitor.analyze_text_encoding_results(
-                text_encoding_baseline, 
-                positive_cond, 
-                negative_cond, 
-                positive_prompt,
-                negative_prompt,
-                elapsed_time
-            )
-            
-            # Print comprehensive analysis
-            model_monitor.print_text_encoding_analysis_summary(text_encoding_analysis)
+            try:
+                text_encoding_analysis = model_monitor.analyze_text_encoding_results(
+                    text_encoding_baseline, 
+                    positive_cond, 
+                    negative_cond, 
+                    positive_prompt,
+                    negative_prompt,
+                    elapsed_time
+                )
+                
+                # Print comprehensive analysis
+                model_monitor.print_text_encoding_analysis_summary(text_encoding_analysis)
+            except Exception as e:
+                print(f"❌ ERROR during text encoding analysis: {e}")
+                print("🔍 Text encoding analysis failed - will show error summary")
+                text_encoding_analysis = None
             
             # Print peak memory information
             print(f"\n📊 PEAK MEMORY DURING TEXT ENCODING:")
-            print(f"   🖥️  RAM Peak: {peak_memory_summary['ram_peak_mb']:.1f} MB")
-            print(f"   🎮 GPU Allocated Peak: {peak_memory_summary['gpu_allocated_peak_mb']:.1f} MB")
-            print(f"   🎮 GPU Reserved Peak: {peak_memory_summary['gpu_reserved_peak_mb']:.1f} MB")
+            if peak_memory_summary:
+                print(f"   🖥️  RAM Peak: {peak_memory_summary.get('ram_peak_mb', 0):.1f} MB")
+                print(f"   🎮 GPU Allocated Peak: {peak_memory_summary.get('gpu_allocated_peak_mb', 0):.1f} MB")
+                print(f"   🎮 GPU Reserved Peak: {peak_memory_summary.get('gpu_reserved_peak_mb', 0):.1f} MB")
+            else:
+                print("   ❌ ERROR: Peak memory summary not available")
             print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
             
             print("✅ Step 3 completed: Text Encoding with comprehensive monitoring")
