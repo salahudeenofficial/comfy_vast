@@ -111,6 +111,28 @@ class ModelLoadingMonitor:
             except Exception as e:
                 print(f"⚠️  Warning: Could not create directory {output_dir}: {e}")
     
+    def _test_tensor_creation(self):
+        """Test tensor creation to verify directory and file creation works"""
+        try:
+            output_dir = "./W_out/step3"
+            test_filename = "test_tensor.npy"
+            test_filepath = os.path.join(output_dir, test_filename)
+            
+            # Create a simple test tensor
+            test_tensor = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.float32)
+            np.save(test_filepath, test_tensor)
+            
+            if os.path.exists(test_filepath):
+                size_mb = os.path.getsize(test_filepath) / (1024**2)
+                print(f"📁 Test tensor created successfully: {test_filepath} ({size_mb:.4f} MB)")
+                # Clean up test file
+                os.remove(test_filepath)
+                print(f"🧹 Test tensor cleaned up")
+            else:
+                print(f"⚠️  Warning: Test tensor creation failed")
+        except Exception as e:
+            print(f"⚠️  Warning: Test tensor creation failed: {e}")
+    
     def _debug_conditioning_structure(self, conditioning, tensor_type):
         """Debug helper to understand conditioning structure"""
         print(f"\n🔍 DEBUGGING {tensor_type.upper()} CONDITIONING STRUCTURE:")
