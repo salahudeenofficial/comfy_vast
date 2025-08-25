@@ -93,6 +93,9 @@ class ModelLoadingMonitor:
         
         # Create output directories for tensor dumps
         self._create_output_directories()
+        
+        # Test tensor creation to verify directory works
+        self._test_tensor_creation()
     
     def _create_output_directories(self):
         """Create output directories for tensor dumps and analysis"""
@@ -1000,6 +1003,7 @@ class ModelLoadingMonitor:
     def _analyze_conditioning_tensor(self, conditioning, tensor_type):
         """Analyze a conditioning tensor in detail"""
         if conditioning is None:
+            print(f"   ❌ {tensor_type} conditioning is None")
             return {
                 'status': 'failed',
                 'error': 'Conditioning tensor is None'
@@ -1013,39 +1017,47 @@ class ModelLoadingMonitor:
             tensor_data = None
             metadata = {}
             
+            print(f"   🔍 Attempting to extract tensor from {tensor_type} conditioning...")
+            
             # Strategy 1: Direct tensor
             if hasattr(conditioning, 'shape'):
                 tensor_data = conditioning
                 metadata = {}
-                print(f"   ✅ Found direct tensor with shape: {tensor_data.shape}")
+                print(f"   ✅ Strategy 1 SUCCESS: Found direct tensor with shape: {tensor_data.shape}")
             
             # Strategy 2: List/tuple format [tensor, metadata]
             elif isinstance(conditioning, (list, tuple)) and len(conditioning) > 0:
+                print(f"   🔍 Strategy 2: Checking list/tuple with {len(conditioning)} items")
                 if hasattr(conditioning[0], 'shape'):
                     tensor_data = conditioning[0]
                     metadata = conditioning[1] if len(conditioning) > 1 else {}
-                    print(f"   ✅ Found tensor in list[0] with shape: {tensor_data.shape}")
+                    print(f"   ✅ Strategy 2 SUCCESS: Found tensor in list[0] with shape: {tensor_data.shape}")
                 else:
                     # Try to find tensor in the list
+                    print(f"   🔍 Strategy 2: Item[0] has no shape, searching through list...")
                     for i, item in enumerate(conditioning):
+                        print(f"      Checking item[{i}]: type={type(item).__name__}, has_shape={hasattr(item, 'shape')}")
                         if hasattr(item, 'shape'):
                             tensor_data = item
                             metadata = {f'list_index_{i}': item for j, item in enumerate(conditioning) if j != i}
-                            print(f"   ✅ Found tensor in list[{i}] with shape: {tensor_data.shape}")
+                            print(f"   ✅ Strategy 2 SUCCESS: Found tensor in list[{i}] with shape: {tensor_data.shape}")
                             break
             
             # Strategy 3: Dictionary format
             elif isinstance(conditioning, dict):
+                print(f"   🔍 Strategy 3: Checking dictionary with {len(conditioning)} keys")
                 # Look for tensor-like objects in the dictionary
                 for key, value in conditioning.items():
+                    print(f"      Checking key '{key}': type={type(value).__name__}, has_shape={hasattr(value, 'shape')}")
                     if hasattr(value, 'shape'):
                         tensor_data = value
                         metadata = {k: v for k, v in conditioning.items() if k != key}
-                        print(f"   ✅ Found tensor in dict['{key}'] with shape: {tensor_data.shape}")
+                        print(f"   ✅ Strategy 3 SUCCESS: Found tensor in dict['{key}'] with shape: {tensor_data.shape}")
                         break
             
             # If we found tensor data, analyze it
             if tensor_data is not None and hasattr(tensor_data, 'shape'):
+                print(f"   🎯 Tensor extraction SUCCESS for {tensor_type}")
                 shape = tensor_data.shape
                 dtype = str(tensor_data.dtype)
                 device = str(tensor_data.device)
@@ -1060,24 +1072,38 @@ class ModelLoadingMonitor:
                 # Create output directory for tensor dumps
                 output_dir = "./W_out/step3"
                 os.makedirs(output_dir, exist_ok=True)
+                print(f"   📁 Output directory ensured: {output_dir}")
                 
                 # Generate filename for tensor dump
                 timestamp = int(time.time())
                 tensor_filename = f"{tensor_type.lower()}_conditioning_{timestamp}.npy"
                 tensor_filepath = os.path.join(output_dir, tensor_filename)
+                print(f"   📄 Will save to: {tensor_filepath}")
                 
                 # Store tensor for later comparison (dump to file)
                 try:
+                    print(f"   🔄 Converting tensor to numpy...")
                     # Convert to numpy and save
                     if hasattr(tensor_data, 'detach'):
+                        print(f"      Using detach().cpu().numpy() method")
                         numpy_tensor = tensor_data.detach().cpu().numpy()
                     elif hasattr(tensor_data, 'cpu'):
+                        print(f"      Using cpu().numpy() method")
                         numpy_tensor = tensor_data.cpu().numpy()
                     else:
+                        print(f"      Using direct .numpy() method")
                         numpy_tensor = tensor_data.numpy()
                     
+                    print(f"   💾 Saving numpy tensor to file...")
                     # Save tensor to file
                     np.save(tensor_filepath, numpy_tensor)
+                    
+                    # Verify file was created
+                    if os.path.exists(tensor_filepath):
+                        actual_size = os.path.getsize(tensor_filepath) / (1024**2)
+                        print(f"   ✅ File saved successfully! Size: {actual_size:.2f} MB")
+                    else:
+                        print(f"   ❌ ERROR: File was not created!")
                     
                     tensor_dump = {
                         'shape': shape,
@@ -1097,6 +1123,9 @@ class ModelLoadingMonitor:
                     
                 except Exception as dump_error:
                     print(f"   ⚠️  Warning: Could not dump tensor: {dump_error}")
+                    import traceback
+                    print(f"   🔍 Dump error traceback:")
+                    traceback.print_exc()
                     tensor_dump = {
                         'shape': shape,
                         'dtype': dtype,
@@ -1120,6 +1149,7 @@ class ModelLoadingMonitor:
                     'tensor_dump': tensor_dump
                 }
             else:
+                print(f"   ❌ All strategies failed - no tensor data found")
                 # Debug information about the conditioning structure
                 debug_info = {
                     'type': type(conditioning).__name__,
@@ -1135,6 +1165,10 @@ class ModelLoadingMonitor:
                 }
                 
         except Exception as e:
+            print(f"   ❌ Analysis failed with exception: {str(e)}")
+            import traceback
+            print(f"   🔍 Exception traceback:")
+            traceback.print_exc()
             return {
                 'status': 'failed',
                 'error': f'Analysis failed: {str(e)}',
@@ -1394,7 +1428,7 @@ class ModelLoadingMonitor:
             peak_timestamps = peak_memory.get('peak_timestamps')
             if peak_timestamps:
                 print(f"   ⏱️  Peak Timestamps:")
-                for peak in peak_timestamps[:5]:  # Show first 5 peaks
+                for peak in peak_memory['peak_timestamps'][:5]:  # Show first 5 peaks
                     print(f"      {peak.get('type', 'unknown')}: {peak.get('value_mb', 0):.1f} MB at {peak.get('timestamp', 0):.2f}s")
         
         print("=" * 80)
@@ -2131,6 +2165,12 @@ def main():
             cliptextencode = CLIPTextEncode()
             positive_cond_tuple = cliptextencode.encode(modified_clip, positive_prompt)
             
+            # Debug: Show what was returned
+            print(f"   🔍 Positive encoding result type: {type(positive_cond_tuple).__name__}")
+            if positive_cond_tuple is not None:
+                print(f"   🔍 Positive encoding result length: {len(positive_cond_tuple) if hasattr(positive_cond_tuple, '__len__') else 'N/A'}")
+                print(f"   🔍 Positive encoding result repr: {repr(positive_cond_tuple)[:200]}...")
+            
             # Update peak memory after positive encoding
             model_monitor.update_peak_memory()
             
@@ -2138,12 +2178,58 @@ def main():
             print("   🔤 Encoding negative prompt...")
             negative_cond_tuple = cliptextencode.encode(modified_clip, negative_prompt)
             
+            # Debug: Show what was returned
+            print(f"   🔍 Negative encoding result type: {type(negative_cond_tuple).__name__}")
+            if negative_cond_tuple is not None:
+                print(f"   🔍 Negative encoding result length: {len(negative_cond_tuple) if hasattr(negative_cond_tuple, '__len__') else 'N/A'}")
+                print(f"   🔍 Negative encoding result repr: {repr(negative_cond_tuple)[:200]}...")
+            
             # Update peak memory after negative encoding
             model_monitor.update_peak_memory()
             
-            # Extract conditioning from tuples
-            positive_cond = positive_cond_tuple[0] if positive_cond_tuple else None
-            negative_cond = negative_cond_tuple[0] if negative_cond_tuple else None
+            # Extract conditioning from tuples - try different extraction strategies
+            print("   🔍 Extracting conditioning tensors...")
+            
+            # Strategy 1: Try direct extraction
+            positive_cond = positive_cond_tuple
+            negative_cond = negative_cond_tuple
+            
+            # Strategy 2: If it's a list/tuple, try first element
+            if isinstance(positive_cond_tuple, (list, tuple)) and len(positive_cond_tuple) > 0:
+                positive_cond = positive_cond_tuple[0]
+                print(f"   🔍 Extracted positive_cond from positive_cond_tuple[0]")
+            
+            if isinstance(negative_cond_tuple, (list, tuple)) and len(negative_cond_tuple) > 0:
+                negative_cond = negative_cond_tuple[0]
+                print(f"   🔍 Extracted negative_cond from negative_cond_tuple[0]")
+            
+            # Strategy 3: If it's a dict, look for tensor-like objects
+            if isinstance(positive_cond, dict):
+                for key, value in positive_cond.items():
+                    if hasattr(value, 'shape'):
+                        positive_cond = value
+                        print(f"   🔍 Found positive tensor in dict['{key}']")
+                        break
+            
+            if isinstance(negative_cond, dict):
+                for key, value in negative_cond.items():
+                    if hasattr(value, 'shape'):
+                        negative_cond = value
+                        print(f"   🔍 Found negative tensor in dict['{key}']")
+                        break
+            
+            print(f"   🔍 Final positive_cond type: {type(positive_cond).__name__}")
+            print(f"   🔍 Final negative_cond type: {type(negative_cond).__name__}")
+            
+            if positive_cond is not None and hasattr(positive_cond, 'shape'):
+                print(f"   ✅ Positive conditioning tensor found: {positive_cond.shape}")
+            else:
+                print(f"   ❌ Positive conditioning tensor not found or invalid")
+            
+            if negative_cond is not None and hasattr(negative_cond, 'shape'):
+                print(f"   ✅ Negative conditioning tensor found: {negative_cond.shape}")
+            else:
+                print(f"   ❌ Negative conditioning tensor not found or invalid")
             
             # End monitoring and get peak memory summary
             elapsed_time = model_monitor.end_monitoring("text_encoding", [positive_cond, negative_cond], "TextEncoding_Result")
@@ -2185,6 +2271,30 @@ def main():
                 print("   ⏱️  Total Time: N/A")
             
             print("✅ Step 3 completed: Text Encoding with comprehensive monitoring")
+            
+            # Check output directory contents
+            print(f"\n📁 CHECKING OUTPUT DIRECTORY CONTENTS:")
+            output_dir = "./W_out/step3"
+            if os.path.exists(output_dir):
+                try:
+                    files = os.listdir(output_dir)
+                    if files:
+                        print(f"   📂 Directory '{output_dir}' contains {len(files)} files:")
+                        for file in sorted(files):
+                            filepath = os.path.join(output_dir, file)
+                            if os.path.isfile(filepath):
+                                size_mb = os.path.getsize(filepath) / (1024**2)
+                                print(f"      📄 {file} ({size_mb:.4f} MB)")
+                            else:
+                                print(f"      📁 {file} (directory)")
+                    else:
+                        print(f"   📂 Directory '{output_dir}' is empty")
+                except Exception as e:
+                    print(f"   ⚠️  Could not read directory '{output_dir}': {e}")
+            else:
+                print(f"   ❌ Directory '{output_dir}' does not exist")
+                print(f"   💡 Current working directory: {os.getcwd()}")
+                print(f"   💡 Absolute path: {os.path.abspath(output_dir)}")
             
         except Exception as e:
             print(f"❌ ERROR during text encoding: {e}")
