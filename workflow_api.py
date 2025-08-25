@@ -7,21 +7,78 @@ from typing import Sequence, Mapping, Any, Union
 import torch
 
 # Direct imports for VHS functionality
-try:
-    # Add custom_nodes to path for direct imports
-    custom_nodes_path = os.path.join(os.path.dirname(__file__), 'custom_nodes', 'comfyui-videohelpersuite')
-    if custom_nodes_path not in sys.path:
-        sys.path.insert(0, custom_nodes_path)
+VHS_AVAILABLE = False
+VHS_LoadVideoUpload = None
+VHS_LoadVideoPath = None
+
+def attempt_vhs_import():
+    """Attempt to import VHS classes with multiple fallback strategies"""
+    global VHS_AVAILABLE, VHS_LoadVideoUpload, VHS_LoadVideoPath
     
-    # Import the specific classes we need
-    from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
+    # Strategy 1: Try to find ComfyUI directory and import from there
+    comfyui_path = find_path("ComfyUI")
+    if comfyui_path and os.path.isdir(comfyui_path):
+        # Try multiple import paths
+        import_paths = [
+            os.path.join(comfyui_path, 'custom_nodes', 'comfyui-videohelpersuite'),
+            os.path.join(comfyui_path, 'custom_nodes', 'VideoHelperSuite'),
+            os.path.join(comfyui_path, 'custom_nodes', 'videohelpersuite'),
+            os.path.join(os.path.dirname(__file__), 'custom_nodes', 'comfyui-videohelpersuite'),
+            os.path.join(os.path.dirname(__file__), 'custom_nodes', 'VideoHelperSuite'),
+            os.path.join(os.path.dirname(__file__), 'custom_nodes', 'videohelpersuite')
+        ]
+        
+        for import_path in import_paths:
+            if os.path.exists(import_path):
+                try:
+                    if import_path not in sys.path:
+                        sys.path.insert(0, import_path)
+                    
+                    # Try different import patterns
+                    try:
+                        from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
+                        print(f"✅ Successfully imported VHS from: {import_path}")
+                        VHS_AVAILABLE = True
+                        return True
+                    except ImportError:
+                        pass
+                        
+                    try:
+                        from load_video_nodes import LoadVideoUpload, LoadVideoPath
+                        print(f"✅ Successfully imported VHS from: {import_path}")
+                        VHS_AVAILABLE = True
+                        return True
+                    except ImportError:
+                        pass
+                        
+                except Exception as e:
+                    continue
     
-    print("✅ Successfully imported VHS video loading classes directly")
-    VHS_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️  Warning: Could not import VHS classes directly: {e}")
+    # Strategy 2: Try to import from already loaded custom nodes
+    try:
+        # Check if VHS is already available in NODE_CLASS_MAPPINGS
+        if 'VHS_LoadVideo' in globals().get('NODE_CLASS_MAPPINGS', {}):
+            print("✅ VHS already available in NODE_CLASS_MAPPINGS")
+            VHS_AVAILABLE = True
+            return True
+    except:
+        pass
+    
+    # Strategy 3: Try pip-installed package
+    try:
+        from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
+        print("✅ Successfully imported VHS from pip-installed package")
+        VHS_AVAILABLE = True
+        return True
+    except ImportError:
+        pass
+    
+    print("⚠️  Warning: Could not import VHS classes with any strategy")
     print("   Will use fallback video loading approach")
     VHS_AVAILABLE = False
+    return False
+
+# VHS import will be attempted after find_path function is defined
 
 # Add monitoring and debugging utilities
 class ModelLoadingMonitor:
@@ -111,6 +168,8 @@ class ModelLoadingMonitor:
         self._extract_enhanced_model_info(loader_result, model_type)
         
         print("=" * 60)
+        
+        return elapsed_time
     
     def update_peak_memory(self):
         """Update peak memory values - call this during monitoring to track peaks"""
@@ -1403,11 +1462,14 @@ def add_extra_model_paths() -> None:
     """
     try:
         from main import load_extra_path_config
+        print("✅ Successfully imported extra_config from main")
     except ImportError:
         try:
             from utils.extra_config import load_extra_path_config
+            print("✅ Successfully imported extra_config from utils.extra_config")
         except ImportError:
             print("⚠️  Warning: Could not import extra_config, skipping extra model paths")
+            print("   This is normal if extra_model_paths.yaml is not configured")
             return
 
     extra_model_paths = find_path("extra_model_paths.yaml")
@@ -1415,12 +1477,18 @@ def add_extra_model_paths() -> None:
     if extra_model_paths is not None:
         try:
             load_extra_path_config(extra_model_paths)
+            print(f"✅ Successfully loaded extra model paths from: {extra_model_paths}")
         except Exception as e:
             print(f"⚠️  Warning: Could not load extra model paths: {e}")
+    else:
+        print("ℹ️  No extra_model_paths.yaml found - using default paths only")
 
 
 add_comfyui_directory_to_sys_path()
 add_extra_model_paths()
+
+# Now attempt VHS import after find_path is available
+attempt_vhs_import()
 
 
 def import_custom_nodes() -> dict:
@@ -1587,13 +1655,17 @@ def main():
         print("1. Loading diffusion model components...")
         
         # Load video and reference image using direct imports
-        if VHS_AVAILABLE:
+        video_file = "safu.mp4"
+        video_file_exists = os.path.exists(video_file)
+        
+        if VHS_AVAILABLE and VHS_LoadVideoPath is not None and video_file_exists:
             print("🎥 Loading video using direct VHS imports...")
+            print(f"   📁 Video file: {video_file} - EXISTS ({os.path.getsize(video_file) / (1024**2):.2f} MB)")
             try:
                 # Use LoadVideoPath for direct file loading
-                video_loader = LoadVideoPath()
+                video_loader = VHS_LoadVideoPath()
                 vhs_loadvideo_1 = video_loader.load_video(
-                    video="safu.mp4",
+                    video=video_file,
                     force_rate=0,
                     custom_width=0,
                     custom_height=0,
@@ -1604,26 +1676,44 @@ def main():
                 print("✅ Video loaded successfully using direct VHS import")
             except Exception as e:
                 print(f"❌ Error loading video with direct import: {e}")
+                print("   This may be due to VHS compatibility issues or corrupted video file")
                 vhs_loadvideo_1 = None
+        elif not video_file_exists:
+            print("⏭️  Skipping video loading (video file not found)")
+            print(f"   📁 Video file: {video_file} - NOT FOUND")
+            print(f"   💡 Make sure '{video_file}' exists in the current directory")
+            vhs_loadvideo_1 = None
         else:
             print("⏭️  Skipping video loading (VHS not available)")
+            print("   VHS_AVAILABLE:", VHS_AVAILABLE)
+            print("   VHS_LoadVideoPath:", "Available" if VHS_LoadVideoPath is not None else "None")
             vhs_loadvideo_1 = None
         
         # Load reference image
-        try:
-            loadimage = LoadImage()
-            loadimage_4 = loadimage.load_image(image="safu.jpg")
-            print("✅ Reference image loaded successfully")
-            
-                    # Debug: Show what was loaded
-        # if loadimage_4:
-        #     print(f"   Image type: {type(loadimage_4)}")
-        #     if isinstance(loadimage_4, (list, tuple)) and len(loadimage_4) > 0:
-        #         print(f"   Image data type: {type(loadimage_4[0])}")
-        #         if hasattr(loadimage_4[0], 'shape'):
-        #             print(f"   Image shape: {loadimage_4[0].shape}")
-        except Exception as e:
-            print(f"❌ Error loading reference image: {e}")
+        image_file = "safu.jpg"
+        image_file_exists = os.path.exists(image_file)
+        
+        if image_file_exists:
+            print(f"📷 Loading reference image: {image_file} - EXISTS ({os.path.getsize(image_file) / (1024**2):.2f} MB)")
+            try:
+                loadimage = LoadImage()
+                loadimage_4 = loadimage.load_image(image=image_file)
+                print("✅ Reference image loaded successfully")
+                
+                # Debug: Show what was loaded
+                # if loadimage_4:
+                #     print(f"   Image type: {type(loadimage_4)}")
+                #     if isinstance(loadimage_4, (list, tuple)) and len(loadimage_4) > 0:
+                #         print(f"   Image data type: {type(loadimage_4[0])}")
+                #         if hasattr(loadimage_4[0], 'shape'):
+                #         print(f"   Image shape: {loadimage_4[0].shape}")
+            except Exception as e:
+                print(f"❌ Error loading reference image: {e}")
+                loadimage_4 = None
+        else:
+            print(f"⏭️  Skipping reference image loading (image file not found)")
+            print(f"   📁 Image file: {image_file} - NOT FOUND")
+            print(f"   💡 Make sure '{image_file}' exists in the current directory")
             loadimage_4 = None
         
         # Debug: Show video loading results
@@ -1812,6 +1902,9 @@ def main():
         # === STEP 3 START: TEXT ENCODING ===
         print("3. Encoding text prompts...")
         
+        # Initialize text encoding analysis variable
+        text_encoding_analysis = None
+        
         # Capture baseline state before text encoding
         print("\n🔍 CAPTURING BASELINE STATE BEFORE TEXT ENCODING...")
         
@@ -1900,6 +1993,9 @@ def main():
             except Exception as e:
                 print(f"❌ ERROR during text encoding analysis: {e}")
                 print("🔍 Text encoding analysis failed - will show error summary")
+                print("🔍 Error details:", str(e))
+                import traceback
+                traceback.print_exc()
                 text_encoding_analysis = None
             
             # Print peak memory information
@@ -1910,7 +2006,10 @@ def main():
                 print(f"   🎮 GPU Reserved Peak: {peak_memory_summary.get('gpu_reserved_peak_mb', 0):.1f} MB")
             else:
                 print("   ❌ ERROR: Peak memory summary not available")
-            print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
+            if elapsed_time is not None and isinstance(elapsed_time, (int, float)):
+                print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
+            else:
+                print("   ⏱️  Total Time: N/A")
             
             print("✅ Step 3 completed: Text Encoding with comprehensive monitoring")
             
@@ -1919,6 +2018,7 @@ def main():
             print("🔍 Text encoding failed - check error details above")
             positive_cond = None
             negative_cond = None
+            text_encoding_analysis = None
             
         # === STEP 3 END: TEXT ENCODING ===
 
