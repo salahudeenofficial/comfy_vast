@@ -2441,8 +2441,8 @@ def add_extra_model_paths() -> None:
 add_comfyui_directory_to_sys_path()
 add_extra_model_paths()
 
-# Now attempt VHS import after find_path is available
-attempt_vhs_import()
+# VHS import will be attempted through custom nodes system instead of direct import
+# attempt_vhs_import()
 
 
 def import_custom_nodes() -> dict:
@@ -2517,6 +2517,36 @@ def import_custom_nodes() -> dict:
 def main():
     print("🔍 Starting main function...")
     
+    # Load custom nodes FIRST, before importing NODE_CLASS_MAPPINGS
+    print("🔍 Attempting to import custom nodes...")
+    custom_node_mappings = import_custom_nodes()
+    print(f"🔍 Custom node mappings result: {type(custom_node_mappings)}")
+    
+    if custom_node_mappings:
+        print(f"🔍 Found {len(custom_node_mappings)} custom nodes")
+        # Show some of the custom node names
+        custom_node_names = list(custom_node_mappings.keys())[:10]
+        print(f"🔍 Custom node examples: {custom_node_names}")
+        
+        # Check if VHS nodes are in the custom node mappings
+        vhs_nodes = [name for name in custom_node_mappings.keys() if 'video' in name.lower() or 'vhs' in name.lower()]
+        if vhs_nodes:
+            print(f"🔍 Found VHS-related nodes: {vhs_nodes}")
+            VHS_AVAILABLE = True
+            # Try to get VHS classes from custom node mappings
+            for node_name in vhs_nodes:
+                if 'load' in node_name.lower() and 'video' in node_name.lower():
+                    if 'path' in node_name.lower():
+                        VHS_LoadVideoPath = custom_node_mappings[node_name]
+                        print(f"✅ Found VHS_LoadVideoPath: {node_name}")
+                    elif 'upload' in node_name.lower():
+                        VHS_LoadVideoUpload = custom_node_mappings[node_name]
+                        print(f"✅ Found VHS_LoadVideoUpload: {node_name}")
+        else:
+            print("⚠️  No VHS-related nodes found in custom node mappings")
+    else:
+        print("⚠️  No custom node mappings returned")
+    
     # Show VHS import status at the beginning
     print("\n🔍 VHS IMPORT STATUS:")
     print(f"   VHS_AVAILABLE: {VHS_AVAILABLE}")
@@ -2527,11 +2557,6 @@ def main():
         print("   ✅ VHS classes successfully imported - will use for video loading")
     else:
         print("   ⚠️  VHS classes not available - will use fallback methods")
-    
-    # Load custom nodes FIRST, before importing NODE_CLASS_MAPPINGS
-    print("🔍 Attempting to import custom nodes...")
-    custom_node_mappings = import_custom_nodes()
-    print(f"🔍 Custom node mappings result: {type(custom_node_mappings)}")
     
     # Now import NODE_CLASS_MAPPINGS after custom nodes are loaded
     print("🔍 Importing core ComfyUI nodes...")
@@ -2555,6 +2580,7 @@ def main():
     # Manually merge custom nodes if they weren't merged automatically
     if custom_node_mappings:
         NODE_CLASS_MAPPINGS.update(custom_node_mappings)
+        print(f"✅ Merged {len(custom_node_mappings)} custom nodes into NODE_CLASS_MAPPINGS")
     
     # Load comfy_extras nodes that contain the missing workflow nodes
     try:
@@ -2608,18 +2634,31 @@ def main():
     print(f"🔍 Checking NODE_CLASS_MAPPINGS...")
     print(f"🔍 Total available nodes: {len(NODE_CLASS_MAPPINGS)}")
     
-    if 'VHS_LoadVideo' not in NODE_CLASS_MAPPINGS:
-        print("⚠️  WARNING: VHS_LoadVideo not found in NODE_CLASS_MAPPINGS!")
+    # Check for VHS nodes in the merged mappings
+    vhs_node_names = [name for name in NODE_CLASS_MAPPINGS.keys() if 'video' in name.lower() or 'vhs' in name.lower()]
+    if vhs_node_names:
+        print(f"✅ Found VHS nodes in NODE_CLASS_MAPPINGS: {vhs_node_names}")
+        # Update VHS availability based on what's found
+        for node_name in vhs_node_names:
+            if 'load' in node_name.lower() and 'video' in node_name.lower():
+                if 'path' in node_name.lower():
+                    VHS_LoadVideoPath = NODE_CLASS_MAPPINGS[node_name]
+                    VHS_AVAILABLE = True
+                    print(f"✅ VHS_LoadVideoPath available: {node_name}")
+                elif 'upload' in node_name.lower():
+                    VHS_LoadVideoUpload = NODE_CLASS_MAPPINGS[node_name]
+                    VHS_AVAILABLE = True
+                    print(f"✅ VHS_LoadVideoUpload available: {node_name}")
+    else:
+        print("⚠️  WARNING: No VHS nodes found in NODE_CLASS_MAPPINGS!")
         print("🔍 This is expected if custom nodes aren't loaded. Continuing with model loading debugging...")
         print("📋 Available nodes: " + ", ".join(list(NODE_CLASS_MAPPINGS.keys())[:10]) + "...")
-    else:
-        print("✅ VHS_LoadVideo found in NODE_CLASS_MAPPINGS")
     
     with torch.inference_mode():
         # === STEP 1 START: MODEL LOADING ===
         print("1. Loading diffusion model components...")
         
-        # Load video and reference image using direct imports
+        # Load video and reference image using custom nodes if available
         print("\n🔍 SEARCHING FOR SAFU FILES...")
         safu_files = find_safu_files()
         
@@ -2680,7 +2719,7 @@ def main():
         except Exception as e:
             print(f"   Could not list directory contents: {e}")
         
-        # Always try to load video, even without VHS
+        # Always try to load video, using custom nodes if available
         if video_file_exists:
             print(f"\n🎥 Loading video: {video_file} - EXISTS ({os.path.getsize(video_file) / (1024**2):.2f} MB)")
             
@@ -2691,9 +2730,9 @@ def main():
             print(f"      VHS_LoadVideoUpload: {VHS_LoadVideoUpload}")
             
             if VHS_AVAILABLE and VHS_LoadVideoPath is not None:
-                print("   🔧 Using directly imported VHS LoadVideoPath for video loading...")
+                print("   🔧 Using custom node VHS LoadVideoPath for video loading...")
                 try:
-                    # Create instance of the directly imported VHS class
+                    # Create instance of the custom node VHS class
                     video_loader = VHS_LoadVideoPath()
                     print(f"   🔍 VHS LoadVideoPath instance created: {type(video_loader).__name__}")
                     print(f"   🔍 VHS LoadVideoPath methods: {[m for m in dir(video_loader) if not m.startswith('_')][:10]}")
@@ -2712,7 +2751,7 @@ def main():
                             skip_first_frames=0,
                             select_every_nth=1
                         )
-                        print("✅ Video loaded successfully using directly imported VHS LoadVideoPath")
+                        print("✅ Video loaded successfully using custom node VHS LoadVideoPath")
                         print(f"   🔍 Video data type: {type(vhs_loadvideo_1).__name__}")
                         if isinstance(vhs_loadvideo_1, (list, tuple)) and len(vhs_loadvideo_1) > 0:
                             print(f"   🔍 Video data length: {len(vhs_loadvideo_1)}")
@@ -2724,7 +2763,7 @@ def main():
                         vhs_loadvideo_1 = None
                         
                 except Exception as e:
-                    print(f"❌ Error loading video with directly imported VHS: {e}")
+                    print(f"❌ Error loading video with custom node VHS: {e}")
                     print("   Falling back to manual video loading...")
                     import traceback
                     traceback.print_exc()
