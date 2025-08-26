@@ -76,17 +76,42 @@ def attempt_vhs_import():
                     
                     # Try multiple import strategies for this path
                     import_strategies = [
-                        # Strategy 1: Direct import
-                        ("from load_video_nodes import LoadVideoUpload, LoadVideoPath", "direct"),
-                        # Strategy 2: From videohelpersuite submodule
+                        # Strategy 1: From videohelpersuite submodule (correct path based on user's directory structure)
                         ("from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath", "videohelpersuite"),
-                        # Strategy 3: From nodes submodule
+                        # Strategy 2: From videohelpersuite.nodes (alternative path)
+                        ("from videohelpersuite.nodes import LoadVideoUpload, LoadVideoPath", "videohelpersuite.nodes"),
+                        # Strategy 3: Direct import from videohelpersuite directory
+                        ("from load_video_nodes import LoadVideoUpload, LoadVideoPath", "direct"),
+                        # Strategy 4: From nodes submodule
                         ("from nodes.load_video_nodes import LoadVideoUpload, LoadVideoPath", "nodes"),
-                        # Strategy 4: From comfyui_videohelpersuite
+                        # Strategy 5: From comfyui_videohelpersuite
                         ("from comfyui_videohelpersuite.videohelpersuite.nodes import LoadVideoUpload, LoadVideoPath", "comfyui_videohelpersuite"),
-                        # Strategy 5: From comfyui_videohelpersuite.nodes
+                        # Strategy 6: From comfyui_videohelpersuite.nodes
                         ("from comfyui_videohelpersuite.nodes import LoadVideoUpload, LoadVideoPath", "comfyui_videohelpersuite.nodes")
                     ]
+                    
+                    # Also try to add the videohelpersuite subdirectory to the path for direct import
+                    videohelpersuite_subdir = os.path.join(vhs_path, 'videohelpersuite')
+                    if os.path.exists(videohelpersuite_subdir):
+                        if videohelpersuite_subdir not in sys.path:
+                            sys.path.insert(0, videohelpersuite_subdir)
+                            print(f"      ✅ Added videohelpersuite subdirectory to Python path: {videohelpersuite_subdir}")
+                        
+                        # Try direct import from the subdirectory
+                        try:
+                            print(f"      🔍 Trying direct import from videohelpersuite subdirectory...")
+                            from load_video_nodes import LoadVideoUpload, LoadVideoPath
+                            VHS_LoadVideoUpload = LoadVideoUpload
+                            VHS_LoadVideoPath = LoadVideoPath
+                            VHS_AVAILABLE = True
+                            print(f"✅ Successfully imported VHS classes directly from videohelpersuite subdirectory: {videohelpersuite_subdir}")
+                            print(f"   LoadVideoUpload: {VHS_LoadVideoUpload}")
+                            print(f"   LoadVideoPath: {VHS_LoadVideoPath}")
+                            return True
+                        except ImportError as e:
+                            print(f"         ⚠️  Direct import from videohelpersuite subdirectory failed: {e}")
+                        except Exception as e:
+                            print(f"         ⚠️  Direct import from videohelpersuite subdirectory error: {e}")
                     
                     for import_statement, strategy_name in import_strategies:
                         try:
