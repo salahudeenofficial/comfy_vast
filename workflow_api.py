@@ -623,12 +623,12 @@ class ModelLoadingMonitor:
         print(f"\n🔍 STEP 4: MODEL SAMPLING")
         print("   ✅ Model sampling completed (monitoring disabled)")
         
-        # Step 5: Latent Generation Summary
+        # Step 5: Input Preparation Summary
         if latent_generation_analysis:
-            print(f"\n🔍 STEP 5: LATENT GENERATION")
+            print(f"\n🔍 STEP 5: INPUT PREPARATION FOR WANVACETOVIDEO NODE")
             self.print_latent_generation_analysis_summary(latent_generation_analysis)
         else:
-            print(f"\n🔍 STEP 5: LATENT GENERATION")
+            print(f"\n🔍 STEP 5: INPUT PREPARATION FOR WANVACETOVIDEO NODE")
             print("   ❌ No analysis available")
         
         print("=" * 80)
@@ -3125,7 +3125,7 @@ def main():
         # === STEP 4 END: MODEL SAMPLING ===
 
         # === STEP 5 START: INITIAL LATENT GENERATION ===
-        print("5. Generating initial latents...")
+        print("5. Preparing inputs for WanVaceToVideo node...")
         
         # Initialize latent generation analysis variable
         latent_generation_analysis = None
@@ -3161,12 +3161,12 @@ def main():
             print("🔍 Cannot proceed with latent generation - check previous steps")
             return
         
-        # Create video data for latent generation (use actual files if available, otherwise dummy data)
-        print("\n🎬 PREPARING VIDEO DATA FOR LATENT GENERATION...")
+        # Prepare inputs for WanVaceToVideo node (like ComfyUI web workflow)
+        print("\n🎬 PREPARING INPUTS FOR WANVACETOVIDEO NODE...")
         try:
-            # Check if we have actual video data from Step 1
+            # Check if we have actual video data from Step 1 (this will be the control video)
             if 'vhs_loadvideo_1' in locals() and vhs_loadvideo_1 is not None:
-                print("   🎥 Using actual video data from Step 1...")
+                print("   🎥 Using actual video data from Step 1 as CONTROL VIDEO...")
                 actual_video_data = vhs_loadvideo_1
                 
                 # Extract video dimensions from actual data
@@ -3192,20 +3192,23 @@ def main():
                         
                         print(f"   📐 Actual Video Dimensions: {actual_length} frames, {actual_height}x{actual_width}, {actual_channels} channels")
                         
-                        # Use actual video data
+                        # Use actual video data as control video
                         control_video = video_tensor
+                        
+                        # For reference image, use the first frame of the video
                         reference_image = video_tensor[0] if actual_length > 0 else video_tensor
                         
-                        print("   ✅ Using actual video data for VAE encoding")
+                        print("   ✅ Using actual video data as control video, first frame as reference")
+                        print("   💡 This matches the ComfyUI web workflow: WanVaceToVideo node will handle VAE encoding")
                         use_actual_data = True
                     else:
                         raise ValueError("Video tensor has no shape attribute")
                 else:
                     raise ValueError("Video data structure is invalid")
                     
-            # Check if we have actual image data from Step 1
+            # Check if we have actual image data from Step 1 (this will be used as reference image)
             elif 'loadimage_4' in locals() and loadimage_4 is not None:
-                print("   🖼️  Using actual image data from Step 1...")
+                print("   🖼️  Using actual image data from Step 1 as REFERENCE IMAGE...")
                 actual_image_data = loadimage_4
                 
                 # Extract image dimensions from actual data
@@ -3231,11 +3234,17 @@ def main():
                         
                         print(f"   📐 Actual Image Dimensions: {actual_length} frame, {actual_height}x{actual_width}, {actual_channels} channels")
                         
-                        # Create video tensor from image (repeat for multiple frames)
-                        control_video = image_tensor.unsqueeze(0).repeat(16, 1, 1, 1) if len(image_tensor.shape) == 3 else image_tensor.repeat(16, 1, 1, 1)
+                        # IMPORTANT: This is the REFERENCE IMAGE for the WanVaceToVideo node
                         reference_image = image_tensor
                         
-                        print("   ✅ Using actual image data for VAE encoding")
+                        # Create control video by repeating the reference image (this is what the node expects)
+                        # The WanVaceToVideo node needs both inputs:
+                        # - reference_image: single image (this)
+                        # - control_video: video sequence (we'll create from this image)
+                        control_video = image_tensor.unsqueeze(0).repeat(16, 1, 1, 1) if len(image_tensor.shape) == 3 else image_tensor.repeat(16, 1, 1, 1)
+                        
+                        print("   ✅ Using actual image as reference, creating control video from reference")
+                        print("   💡 This matches the ComfyUI web workflow: WanVaceToVideo node will handle VAE encoding")
                         use_actual_data = True
                     else:
                         raise ValueError("Image tensor has no shape attribute")
@@ -3268,197 +3277,107 @@ def main():
             print("🔍 Cannot proceed with latent generation")
             return
         
-        # Apply VAE encoding with comprehensive monitoring
+        # Monitor the input preparation process
         try:
-            print("\n🔧 APPLYING VAE ENCODING FOR LATENT GENERATION...")
+            print("\n🔧 MONITORING INPUT PREPARATION FOR WANVACETOVIDEO NODE...")
             
-            # Start monitoring peak memory during latent generation
-            model_monitor.start_monitoring("latent_generation_step5")
+            # Start monitoring peak memory during input preparation
+            model_monitor.start_monitoring("input_preparation_step5")
             
-            # Update peak memory before VAE encoding
+            # Update peak memory before input preparation
             model_monitor.update_peak_memory()
             
-            # Display GPU memory before encoding
+            # Display GPU memory before input preparation
             current_gpu_allocated = torch.cuda.memory_allocated() / (1024**2)
             current_gpu_reserved = torch.cuda.memory_reserved() / (1024**2)
             print(f"   GPU Memory Before: {current_gpu_allocated:.1f} MB allocated, {current_gpu_reserved:.1f} MB reserved")
             
-            # Strategy 1: Direct VAE encoding
-            print("   🎯 Strategy 1: Direct VAE encoding...")
-            try:
-                # Get the VAE model
-                vae_model = get_value_at_index(vaeloader_7, 0)
-                
-                # Encode the dummy video using VAE
-                print(f"   🔍 VAE Model Type: {type(vae_model).__name__}")
-                print(f"   🔍 VAE Model Device: {getattr(vae_model, 'device', 'unknown')}")
-                
-                # Use VAE encode method if available
-                if hasattr(vae_model, 'encode'):
-                    print("   🔍 Using VAE.encode() method...")
-                    
-                    # Prepare input tensor (VAE expects batch, channels, height, width)
-                    # Convert from (frames, height, width, channels) to (batch, channels, height, width)
-                    input_tensor = control_video.permute(0, 3, 1, 2).unsqueeze(0)  # Add batch dimension
-                    print(f"   🔍 Input tensor shape: {input_tensor.shape}")
-                    
-                    # Encode to latent space
-                    with torch.no_grad():
-                        init_latent = vae_model.encode(input_tensor)
-                    
-                    print(f"   ✅ Strategy 1 SUCCESS: Direct VAE encoding completed!")
-                    print(f"   📐 Generated latent shape: {init_latent.shape}")
-                    strategy_used = "Direct VAE Encoding"
-                    
-                else:
-                    raise RuntimeError("VAE model does not have encode method")
-                    
-            except Exception as strategy1_error:
-                print(f"   ❌ Strategy 1 failed: {strategy1_error}")
-                
-                # Strategy 2: Tiled VAE encoding
-                print("   🎯 Strategy 2: Tiled VAE encoding...")
-                try:
-                    if hasattr(vae_model, 'encode_tiled'):
-                        print("   🔍 Using VAE.encode_tiled() method...")
-                        
-                        # Use tiled encoding for memory efficiency
-                        init_latent = vae_model.encode_tiled(
-                            input_tensor,
-                            tile_x=256,  # 256x256 spatial tiles
-                            tile_y=256,
-                            overlap=64    # 64px overlap for smooth blending
-                        )
-                        
-                        print(f"   ✅ Strategy 2 SUCCESS: Tiled VAE encoding completed!")
-                        print(f"   📐 Generated latent shape: {init_latent.shape}")
-                        strategy_used = "Tiled VAE Encoding"
-                        
-                    else:
-                        raise RuntimeError("VAE model does not support tiled encoding")
-                        
-                except Exception as strategy2_error:
-                    print(f"   ❌ Strategy 2 failed: {strategy2_error}")
-                    
-                    # Strategy 3: CPU Fallback
-                    print("   🎯 Strategy 3: CPU Fallback encoding...")
-                    try:
-                        print("   🔍 Moving data to CPU for processing...")
-                        
-                        # Move tensors to CPU
-                        control_video_cpu = control_video.cpu()
-                        reference_image_cpu = reference_image.cpu()
-                        
-                        # Create minimal tensors for CPU processing
-                        minimal_length = 8
-                        minimal_height = 256
-                        minimal_width = 256
-                        
-                        print(f"   🔍 Using minimal settings: {minimal_length} frames at {minimal_height}x{minimal_width}")
-                        
-                        # Create minimal dummy tensors
-                        minimal_video = torch.randn((minimal_length, minimal_height, minimal_width, 3), device='cpu') * 0.5 + 0.5
-                        
-                        # Encode minimal video
-                        minimal_input = minimal_video.permute(0, 3, 1, 2).unsqueeze(0)
-                        
-                        with torch.no_grad():
-                            init_latent = vae_model.encode(minimal_input)
-                        
-                        print(f"   ✅ Strategy 3 SUCCESS: CPU fallback encoding completed!")
-                        print(f"   📐 Generated latent shape: {init_latent.shape}")
-                        strategy_used = "CPU Fallback Encoding"
-                        
-                    except Exception as strategy3_error:
-                        print(f"   ❌ Strategy 3 failed: {strategy3_error}")
-                        
-                        # Strategy 4: Dummy latent creation (emergency)
-                        print("   🚨 Strategy 4: Emergency dummy latent creation...")
-                        
-                        # Calculate latent dimensions based on typical VAE downscale ratios
-                        temporal_downscale = 4   # Typical temporal compression
-                        spatial_downscale = 8    # Typical spatial compression
-                        
-                        latent_frames = max(1, actual_length // temporal_downscale)
-                        latent_height = max(1, actual_height // spatial_downscale)
-                        latent_width = max(1, actual_width // spatial_downscale)
-                        
-                        print(f"   🔍 Calculated latent dimensions:")
-                        print(f"   🔍   Original: {actual_length} frames, {actual_height}x{actual_width}")
-                        print(f"      Latent: {latent_frames} frames, {latent_height}x{latent_width}")
-                        
-                        # Create dummy latents with correct dimensions
-                        dummy_latent_shape = (1, latent_frames, 4, latent_height, latent_width)
-                        init_latent = torch.randn(dummy_latent_shape, device='cpu') * 0.1
-                        
-                        print(f"   ✅ Strategy 4 SUCCESS: Emergency dummy latents created!")
-                        print(f"   📐 Generated latent shape: {init_latent.shape}")
-                        strategy_used = "Emergency Dummy Latents"
-            
-            # Update peak memory after encoding
-            model_monitor.update_peak_memory()
-            
-            # Show summary of what data was used
-            print(f"\n📊 VAE ENCODING DATA SUMMARY:")
+            # Show summary of what data was prepared
+            print(f"\n📊 INPUT PREPARATION SUMMARY:")
             if 'use_actual_data' in locals() and use_actual_data:
-                print(f"   🎯 Data Source: ACTUAL {'VIDEO' if 'vhs_loadvideo_1' in locals() and vhs_loadvideo_1 is not None else 'IMAGE'} data from Step 1")
-                print(f"   📐 Input Dimensions: {actual_length} frames, {actual_height}x{actual_width}, {actual_channels} channels")
-                print(f"   💾 Input Size: {(actual_length * actual_height * actual_width * actual_channels * 4) / (1024**2):.2f} MB")
+                if 'vhs_loadvideo_1' in locals() and vhs_loadvideo_1 is not None:
+                    print(f"   🎯 Data Source: ACTUAL VIDEO data from Step 1")
+                else:
+                    print(f"   🎯 Data Source: ACTUAL IMAGE data from Step 1 (converted to video)")
+                print(f"   📐 Control Video Dimensions: {actual_length} frames, {actual_height}x{actual_width}, {actual_channels} channels")
+                print(f"   📐 Reference Image Dimensions: {reference_image.shape}")
+                print(f"   💾 Control Video Size: {(actual_length * actual_height * actual_width * actual_channels * 4) / (1024**2):.2f} MB")
+                print(f"   💾 Reference Image Size: {(reference_image.numel() * reference_image.element_size()) / (1024**2):.2f} MB")
             else:
                 print(f"   🎯 Data Source: DUMMY data (no actual files found)")
                 print(f"   📐 Input Dimensions: {actual_length} frames, {actual_height}x{actual_width}, {actual_channels} channels")
                 print(f"   💾 Input Size: {(actual_length * actual_height * actual_width * actual_channels * 4) / (1024**2):.2f} MB")
             
-            print(f"   🔧 Encoding Strategy: {strategy_used}")
-            print(f"   📐 Output Latent Shape: {init_latent.shape}")
-            print(f"   💾 Output Size: {init_latent.numel() * init_latent.element_size() / (1024**2):.2f} MB")
+            print(f"   🔧 Input Strategy: {'Actual Data' if use_actual_data else 'Dummy Data'}")
+            print(f"   📐 Control Video Shape: {control_video.shape}")
+            print(f"   📐 Reference Image Shape: {reference_image.shape}")
+            
+            # Simulate what the WanVaceToVideo node would do (just for monitoring purposes)
+            print(f"\n💡 SIMULATING WANVACETOVIDEO NODE INPUTS:")
+            print(f"   🎯 Reference Image: {reference_image.shape} - Ready for node")
+            print(f"   🎯 Control Video: {control_video.shape} - Ready for node")
+            print(f"   💡 Note: In ComfyUI web, the WanVaceToVideo node would now:")
+            print(f"      - Take these inputs")
+            print(f"      - Apply VAE encoding internally")
+            print(f"      - Produce latents automatically")
+            print(f"      - No manual VAE encoding needed!")
             
             # Check immediate GPU impact
-            gpu_after_encoding = {
+            gpu_after_preparation = {
                 'allocated_mb': torch.cuda.memory_allocated() / (1024**2),
                 'reserved_mb': torch.cuda.memory_reserved() / (1024**2)
             }
             
-            print(f"   GPU Memory After Encoding: {gpu_after_encoding['allocated_mb']:.1f} MB allocated, {gpu_after_encoding['reserved_mb']:.1f} MB reserved")
+            print(f"   GPU Memory After Preparation: {gpu_after_preparation['allocated_mb']:.1f} MB allocated, {gpu_after_preparation['reserved_mb']:.1f} MB reserved")
             
             # Calculate immediate GPU changes
             immediate_gpu_changes = {
-                'allocated_change_mb': gpu_after_encoding['allocated_mb'] - current_gpu_allocated,
-                'reserved_change_mb': gpu_after_encoding['reserved_mb'] - current_gpu_reserved
+                'allocated_change_mb': gpu_after_preparation['allocated_mb'] - current_gpu_allocated,
+                'reserved_change_mb': gpu_after_preparation['reserved_mb'] - current_gpu_reserved
             }
             
             print(f"   📊 Immediate GPU Impact: {immediate_gpu_changes['allocated_change_mb']:+.1f} MB allocated, {immediate_gpu_changes['reserved_change_mb']:+.1f} MB reserved")
             
+            # Update peak memory after input preparation
+            model_monitor.update_peak_memory()
+            
             # End monitoring and get peak memory summary
-            elapsed_time = model_monitor.end_monitoring("latent_generation_step5", init_latent, "LatentGeneration_Result")
+            elapsed_time = model_monitor.end_monitoring("input_preparation_step5", [control_video, reference_image], "InputPreparation_Result")
             peak_memory_summary = model_monitor.get_peak_memory_summary()
             
-            # Analyze latent generation results
-            print("\n🔍 ANALYZING LATENT GENERATION RESULTS...")
-            try:
-                latent_generation_analysis = model_monitor.analyze_latent_generation_results(
-                    latent_generation_baseline,
-                    init_latent,
-                    elapsed_time,
-                    strategy_used,
-                    immediate_gpu_changes,
-                    actual_length,
-                    actual_height,
-                    actual_width
-                )
-                
-                # Print comprehensive analysis
-                model_monitor.print_latent_generation_analysis_summary(latent_generation_analysis)
-            except Exception as e:
-                print(f"❌ ERROR during latent generation analysis: {e}")
-                print("🔍 Latent generation analysis failed - will show error summary")
-                print("🔍 Error details:", str(e))
-                import traceback
-                traceback.print_exc()
-                latent_generation_analysis = None
+            # Create a simple analysis result for monitoring
+            latent_generation_analysis = {
+                'encoding_success': True,  # Inputs are ready
+                'elapsed_time': elapsed_time,
+                'strategy_used': 'Input Preparation Only',
+                'latent_analysis': {
+                    'status': 'success',
+                    'latent_type': 'Inputs Ready for WanVaceToVideo Node',
+                    'shape': f"Control: {control_video.shape}, Reference: {reference_image.shape}",
+                    'dtype': f"Control: {control_video.dtype}, Reference: {reference_image.dtype}",
+                    'device': f"Control: {control_video.device}, Reference: {reference_image.device}",
+                    'size_mb': (control_video.numel() * control_video.element_size() + reference_image.numel() * reference_image.element_size()) / (1024**2),
+                    'num_elements': control_video.numel() + reference_image.numel()
+                },
+                'performance_analysis': {
+                    'total_pixels': actual_length * actual_height * actual_width,
+                    'total_mb': (actual_length * actual_height * actual_width * actual_channels * 4) / (1024**2),
+                    'elapsed_time': elapsed_time,
+                    'strategy_used': 'Input Preparation Only'
+                },
+                'memory_impact': {
+                    'ram': {'used_change_mb': 0, 'available_change_mb': 0},
+                    'gpu': immediate_gpu_changes
+                },
+                'immediate_gpu_changes': immediate_gpu_changes,
+                'peak_memory': peak_memory_summary
+            }
+            
+            # Print comprehensive analysis
+            model_monitor.print_latent_generation_analysis_summary(latent_generation_analysis)
             
             # Print peak memory information
-            print(f"\n📊 PEAK MEMORY DURING LATENT GENERATION:")
+            print(f"\n📊 PEAK MEMORY DURING INPUT PREPARATION:")
             if peak_memory_summary:
                 print(f"   🖥️  RAM Peak: {peak_memory_summary.get('ram_peak_mb', 0):.1f} MB")
                 print(f"   🎮 GPU Allocated Peak: {peak_memory_summary.get('gpu_allocated_peak_mb', 0):.1f} MB")
@@ -3470,25 +3389,24 @@ def main():
             else:
                 print("   ⏱️  Total Time: N/A")
             
-            print("✅ Step 5 completed: Initial Latent Generation with comprehensive monitoring")
+            print("✅ Step 5 completed: Input Preparation for WanVaceToVideo Node")
             
         except Exception as e:
-            print(f"❌ ERROR during latent generation: {e}")
-            print("🔍 Latent generation failed - check error details above")
-            init_latent = None
+            print(f"❌ ERROR during input preparation: {e}")
+            print("🔍 Input preparation failed - check error details above")
             latent_generation_analysis = None
             
         # === STEP 5 END: INITIAL LATENT GENERATION ===
 
         # Stop execution after step 5 for debugging purposes
-        print("\n🛑 STOPPING EXECUTION AFTER STEP 5 (INITIAL LATENT GENERATION)")
-        print("🔍 All latent generation debugging information has been displayed above.")
-        print("📊 Check the monitoring data above to analyze latent generation performance.")
+        print("\n🛑 STOPPING EXECUTION AFTER STEP 5 (INPUT PREPARATION)")
+        print("🔍 All input preparation debugging information has been displayed above.")
+        print("📊 Check the monitoring data above to analyze input preparation performance.")
         print("🔍 Step 1: Model Loading - COMPLETED (monitoring disabled)")
         print("🔍 Step 2: LoRA Application - COMPLETED (monitoring disabled)")
         print("🔍 Step 3: Text Encoding - COMPLETED (monitoring disabled)")
         print("🔍 Step 4: Model Sampling - COMPLETED (monitoring disabled)")
-        print("🔍 Step 5: Initial Latent Generation - COMPLETED (FULL monitoring)")
+        print("🔍 Step 5: Input Preparation for WanVaceToVideo Node - COMPLETED (FULL monitoring)")
         print("🔍 Steps 6-9: SKIPPED for debugging purposes")
         
         # === FINAL MONITORING SUMMARY ===
@@ -3500,7 +3418,7 @@ def main():
         if 'latent_generation_analysis' in locals():
             model_monitor.print_comprehensive_summary(None, None, None, latent_generation_analysis)
         else:
-            print("\n⚠️  Latent generation analysis not available - step 5 may not have completed")
+            print("\n⚠️  Input preparation analysis not available - step 5 may not have completed")
         
         print("="*80)
         
