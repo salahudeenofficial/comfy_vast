@@ -172,6 +172,48 @@ def attempt_vhs_import():
                         if 'original_cwd' in locals():
                             os.chdir(original_cwd)
                     
+                    # Try importing as a ComfyUI custom node package (this should handle relative imports correctly)
+                    try:
+                        print(f"      🔍 Trying ComfyUI custom node package import...")
+                        # Add the custom_nodes directory to the path
+                        custom_nodes_dir = os.path.dirname(vhs_path)
+                        if custom_nodes_dir not in sys.path:
+                            sys.path.insert(0, custom_nodes_dir)
+                            print(f"         ✅ Added custom_nodes directory to Python path: {custom_nodes_dir}")
+                        
+                        # Try to import the package as a ComfyUI custom node
+                        import comfyui_videohelpersuite
+                        print(f"         ✅ Successfully imported comfyui_videohelpersuite package")
+                        
+                        # Now try to access the classes through the package
+                        if hasattr(comfyui_videohelpersuite, 'videohelpersuite'):
+                            videohelpersuite_module = comfyui_videohelpersuite.videohelpersuite
+                            if hasattr(videohelpersuite_module, 'load_video_nodes'):
+                                load_video_nodes_module = videohelpersuite_module.load_video_nodes
+                                if hasattr(load_video_nodes_module, 'LoadVideoUpload') and hasattr(load_video_nodes_module, 'LoadVideoPath'):
+                                    LoadVideoUpload = load_video_nodes_module.LoadVideoUpload
+                                    LoadVideoPath = load_video_nodes_module.LoadVideoPath
+                                    
+                                    VHS_LoadVideoUpload = LoadVideoUpload
+                                    VHS_LoadVideoPath = LoadVideoPath
+                                    VHS_AVAILABLE = True
+                                    
+                                    print(f"✅ Successfully imported VHS classes using ComfyUI custom node package import from: {vhs_path}")
+                                    print(f"   LoadVideoUpload: {VHS_LoadVideoUpload}")
+                                    print(f"   LoadVideoPath: {VHS_LoadVideoPath}")
+                                    return True
+                                else:
+                                    print(f"         ⚠️  LoadVideoUpload or LoadVideoPath not found in load_video_nodes module")
+                            else:
+                                print(f"         ⚠️  load_video_nodes module not found in videohelpersuite")
+                        else:
+                            print(f"         ⚠️  videohelpersuite module not found in comfyui_videohelpersuite package")
+                            
+                    except ImportError as e:
+                        print(f"         ⚠️  ComfyUI custom node package import failed: {e}")
+                    except Exception as e:
+                        print(f"         ⚠️  ComfyUI custom node package import error: {e}")
+                    
                     for import_statement, strategy_name in import_strategies:
                         try:
                             print(f"      🔍 Trying strategy: {strategy_name}")
