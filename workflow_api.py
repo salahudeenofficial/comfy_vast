@@ -2522,6 +2522,11 @@ def main():
     custom_node_mappings = import_custom_nodes()
     print(f"🔍 Custom node mappings result: {type(custom_node_mappings)}")
     
+    # Initialize VHS variables
+    VHS_AVAILABLE = False
+    VHS_LoadVideoPath = None
+    VHS_LoadVideoUpload = None
+    
     if custom_node_mappings:
         print(f"🔍 Found {len(custom_node_mappings)} custom nodes")
         # Show some of the custom node names
@@ -2546,6 +2551,7 @@ def main():
             print("⚠️  No VHS-related nodes found in custom node mappings")
     else:
         print("⚠️  No custom node mappings returned")
+        print("🔍 VHS will not be available - will use fallback methods")
     
     # Show VHS import status at the beginning
     print("\n🔍 VHS IMPORT STATUS:")
