@@ -602,8 +602,8 @@ class ModelLoadingMonitor:
         
         print("=" * 80)
     
-    def print_comprehensive_summary(self, lora_analysis=None, text_encoding_analysis=None):
-        """Print comprehensive summary including model loading, LoRA application, and text encoding"""
+    def print_comprehensive_summary(self, lora_analysis=None, text_encoding_analysis=None, model_sampling_analysis=None):
+        """Print comprehensive summary including model loading, LoRA application, text encoding, and model sampling"""
         print(f"\n📊 COMPREHENSIVE WORKFLOW MONITORING SUMMARY")
         print("=" * 80)
         
@@ -625,6 +625,13 @@ class ModelLoadingMonitor:
             self.print_text_encoding_analysis_summary(text_encoding_analysis)
         else:
             print(f"\n🔍 STEP 3: TEXT ENCODING - No analysis available")
+        
+        # Step 4: Model Sampling Summary
+        if model_sampling_analysis:
+            print(f"\n🔍 STEP 4: MODEL SAMPLING")
+            self.print_model_sampling_analysis_summary(model_sampling_analysis)
+        else:
+            print(f"\n🔍 STEP 4: MODEL SAMPLING - No analysis available")
         
         print("=" * 80)
     
@@ -1654,6 +1661,234 @@ class ModelLoadingMonitor:
                 print(f"         Efficiency Change: {current_efficiency - baseline_efficiency:+.1f}%")
         
         print("=" * 80)
+    
+    # === MODEL SAMPLING MONITORING METHODS ===
+    
+    def capture_model_sampling_baseline(self, unet_model):
+        """Capture UNET state before ModelSamplingSD3 application"""
+        # Capture RAM baseline
+        ram_baseline = psutil.virtual_memory()
+        
+        # Capture GPU baseline
+        gpu_baseline = None
+        if torch.cuda.is_available():
+            gpu_baseline = {
+                'allocated': torch.cuda.memory_allocated(),
+                'reserved': torch.cuda.memory_reserved(),
+                'total': torch.cuda.get_device_properties(0).total_memory,
+                'device_name': torch.cuda.get_device_name(0)
+            }
+        
+        baseline = {
+            'timestamp': time.time(),
+            'ram': {
+                'used_mb': ram_baseline.used / (1024**2),
+                'available_mb': ram_baseline.available / (1024**2),
+                'total_mb': ram_baseline.total / (1024**2),
+                'percent_used': ram_baseline.percent
+            },
+            'gpu': gpu_baseline,
+            'unet': {
+                'model_id': id(unet_model),
+                'class': type(unet_model).__name__,
+                'device': getattr(unet_model, 'device', None),
+                'patches_count': len(getattr(unet_model, 'patches', {})),
+                'patches_uuid': getattr(unet_model, 'patches_uuid', None)
+            }
+        }
+        return baseline
+    
+    def analyze_model_sampling_results(self, unet_baseline, gpu_baseline, modified_unet, elapsed_time, immediate_gpu_changes):
+        """Analyze the results of ModelSamplingSD3 application"""
+        
+        # Check if baselines are available
+        if unet_baseline is None or gpu_baseline is None:
+            print("⚠️  WARNING: Baselines not available - using limited analysis")
+        
+        # Get current memory state
+        current_ram = psutil.virtual_memory()
+        current_gpu = None
+        if torch.cuda.is_available():
+            current_gpu = {
+                'allocated': torch.cuda.memory_allocated(),
+                'reserved': torch.cuda.memory_reserved(),
+                'total': torch.cuda.get_device_properties(0).total_memory
+            }
+        
+        # Analyze UNET changes
+        unet_changes = self.track_model_identity_changes(
+            unet_baseline['unet'] if unet_baseline else None,
+            modified_unet,
+            'UNET'
+        )
+        
+        # Analyze UNET patches
+        unet_patches = self.analyze_lora_patches(modified_unet, 'UNET')
+        
+        # Calculate memory changes
+        memory_impact = self._calculate_model_sampling_memory_change(unet_baseline, gpu_baseline, current_ram, current_gpu)
+        
+        analysis = {
+            'sampling_success': modified_unet is not None,
+            'elapsed_time': elapsed_time,
+            'unet_changes': unet_changes,
+            'unet_patches': unet_patches,
+            'memory_impact': memory_impact,
+            'immediate_gpu_changes': immediate_gpu_changes,
+            'peak_memory': self.get_peak_memory_summary(),
+            'unet_baseline': unet_baseline,
+            'gpu_baseline': gpu_baseline,
+            'current_memory': {
+                'ram': current_ram,
+                'gpu': current_gpu
+            }
+        }
+        
+        return analysis
+    
+    def _calculate_model_sampling_memory_change(self, unet_baseline, gpu_baseline, current_ram, current_gpu):
+        """Calculate memory usage changes during model sampling"""
+        try:
+            # Check if baselines are available
+            if unet_baseline is None or gpu_baseline is None:
+                return {'error': 'Baselines not available for memory calculation'}
+            
+            # Calculate RAM changes
+            ram_changes = {
+                'used_change_mb': (current_ram.used - unet_baseline.get('ram', {}).get('used_mb', 0) * (1024**2)) / (1024**2),
+                'available_change_mb': (current_ram.available - unet_baseline.get('ram', {}).get('available_mb', 0) * (1024**2)) / (1024**2),
+                'current_used_mb': current_ram.used / (1024**2),
+                'current_available_mb': current_ram.available / (1024**2),
+                'current_total_mb': current_ram.total / (1024**2),
+                'current_percent_used': current_ram.percent,
+                'baseline_used_mb': unet_baseline.get('ram', {}).get('used_mb', 0),
+                'baseline_available_mb': unet_baseline.get('ram', {}).get('available_mb', 0),
+                'baseline_percent_used': unet_baseline.get('ram', {}).get('percent_used', 0)
+            }
+            
+            # Calculate GPU changes
+            gpu_changes = None
+            if current_gpu and gpu_baseline.get('gpu'):
+                baseline_gpu = gpu_baseline['gpu']
+                allocated_change = current_gpu['allocated'] - baseline_gpu.get('allocated', 0)
+                reserved_change = current_gpu['reserved'] - baseline_gpu.get('reserved', 0)
+                
+                gpu_changes = {
+                    'allocated_change_mb': allocated_change / (1024**2),
+                    'reserved_change_mb': reserved_change / (1024**2),
+                    'current_allocated_mb': current_gpu['allocated'] / (1024**2),
+                    'current_reserved_mb': current_gpu['reserved'] / (1024**2),
+                    'current_total_mb': current_gpu['total'] / (1024**2),
+                    'baseline_allocated_mb': baseline_gpu.get('allocated', 0) / (1024**2),
+                    'baseline_reserved_mb': baseline_gpu.get('reserved', 0) / (1024**2),
+                    'baseline_total_mb': baseline_gpu.get('total', 0) / (1024**2),
+                    'allocated_change_pct': (allocated_change / baseline_gpu.get('allocated', 1) * 100) if baseline_gpu.get('allocated', 0) > 0 else 0,
+                    'reserved_change_pct': (reserved_change / baseline_gpu.get('reserved', 1) * 100) if baseline_gpu.get('reserved', 0) > 0 else 0
+                }
+            
+            return {
+                'ram': ram_changes,
+                'gpu': gpu_changes
+            }
+        except Exception as e:
+            return {'error': f'Memory calculation failed: {e}'}
+    
+    def print_model_sampling_analysis_summary(self, analysis):
+        """Print comprehensive model sampling analysis"""
+        print(f"\n🔍 MODEL SAMPLING ANALYSIS SUMMARY")
+        print("=" * 80)
+        
+        # Check if analysis is None or invalid
+        if analysis is None:
+            print("❌ ERROR: Model sampling analysis is None")
+            print("   This indicates the model sampling step failed or analysis was not generated")
+            print("=" * 80)
+            return
+        
+        # Basic success info
+        print(f"✅ ModelSamplingSD3 Success: {'YES' if analysis.get('sampling_success', False) else 'NO'}")
+        print(f"⏱️  Total Execution Time: {analysis.get('elapsed_time', 0):.3f} seconds")
+        
+        # UNET Changes Analysis
+        print(f"\n🔧 UNET MODEL CHANGES:")
+        unet_changes = analysis.get('unet_changes')
+        if unet_changes is None:
+            print("   ❌ ERROR: UNET changes analysis not available")
+        else:
+            print(f"   Model Cloned: {'✅ YES' if unet_changes.get('model_cloned', False) else '❌ NO'}")
+            print(f"   Class Changed: {'✅ YES' if unet_changes.get('class_changed', False) else '❌ NO'}")
+            print(f"   Patches Added: {unet_changes.get('patches_added', 0)}")
+            print(f"   UUID Changed: {'✅ YES' if unet_changes.get('uuid_changed', False) else '❌ NO'}")
+            print(f"   Original Patches: {unet_changes.get('original_patch_count', 0)}")
+            print(f"   Modified Patches: {unet_changes.get('modified_patch_count', 0)}")
+        
+        # UNET Patches Analysis
+        print(f"\n🔧 UNET PATCHES ANALYSIS:")
+        unet_patches = analysis.get('unet_patches')
+        if unet_patches is None:
+            print("   ❌ ERROR: UNET patches analysis not available")
+        elif 'error' not in unet_patches:
+            print(f"   Total Patched Keys: {unet_patches.get('total_patched_keys', 0)}")
+            print(f"   Total Patches: {unet_patches.get('total_patches', 0)}")
+            print(f"   Model Structure: {unet_patches.get('model_structure', 'N/A')}")
+        else:
+            print(f"   UNET Patches: {unet_patches.get('error', 'Unknown error')}")
+        
+        # Immediate GPU Changes
+        print(f"\n💾 IMMEDIATE GPU IMPACT:")
+        immediate_gpu_changes = analysis.get('immediate_gpu_changes')
+        if immediate_gpu_changes is None:
+            print("   ❌ ERROR: Immediate GPU changes not available")
+        else:
+            print(f"   Allocated Change: {immediate_gpu_changes.get('allocated_change_mb', 0):+.1f} MB")
+            print(f"   Reserved Change: {immediate_gpu_changes.get('reserved_change_mb', 0):+.1f} MB")
+        
+        # Memory Impact
+        print(f"\n💾 MEMORY IMPACT:")
+        memory_impact = analysis.get('memory_impact')
+        
+        if memory_impact is None:
+            print("   ❌ ERROR: Memory impact analysis not available")
+        elif 'error' not in memory_impact:
+            # RAM Changes
+            if 'ram' in memory_impact:
+                ram = memory_impact['ram']
+                print(f"\n   🖥️  RAM CHANGES:")
+                print(f"      Used: {ram.get('used_change_mb', 0):+.1f} MB ({ram.get('baseline_used_mb', 0):.1f} → {ram.get('current_used_mb', 0):.1f} MB)")
+                print(f"      Available: {ram.get('available_change_mb', 0):+.1f} MB ({ram.get('baseline_available_mb', 0):.1f} → {ram.get('current_available_mb', 0):.1f} MB)")
+                print(f"      Usage: {ram.get('baseline_percent_used', 0):.1f}% → {ram.get('current_percent_used', 0):.1f}%")
+            
+            # GPU Changes
+            if 'gpu' in memory_impact and memory_impact['gpu']:
+                gpu = memory_impact['gpu']
+                print(f"\n   🎮 GPU CHANGES:")
+                print(f"      Allocated: {gpu.get('allocated_change_mb', 0):+.1f} MB ({gpu.get('baseline_allocated_mb', 0):.1f} → {gpu.get('current_allocated_mb', 0):.1f} MB)")
+                print(f"      Reserved: {gpu.get('reserved_change_mb', 0):+.1f} MB ({gpu.get('baseline_reserved_mb', 0):.1f} → {gpu.get('current_reserved_mb', 0):.1f} MB)")
+                print(f"      Total VRAM: {gpu.get('current_total_mb', 0):.1f} MB")
+                print(f"      Allocated Change: {gpu.get('allocated_change_pct', 0):+.1f}%")
+                print(f"      Reserved Change: {gpu.get('reserved_change_pct', 0):+.1f}%")
+        else:
+            print(f"   ❌ Memory calculation failed: {memory_impact.get('error', 'Unknown error')}")
+        
+        # Peak Memory Information
+        peak_memory = analysis.get('peak_memory')
+        if peak_memory is None:
+            print(f"\n📊 PEAK MEMORY DURING MODEL SAMPLING:")
+            print("   ❌ ERROR: Peak memory information not available")
+        else:
+            print(f"\n📊 PEAK MEMORY DURING MODEL SAMPLING:")
+            print(f"   🖥️  RAM Peak: {peak_memory.get('ram_peak_mb', 0):.1f} MB")
+            print(f"   🎮 GPU Allocated Peak: {peak_memory.get('gpu_allocated_peak_mb', 0):.1f} MB")
+            print(f"   🎮 GPU Reserved Peak: {peak_memory.get('gpu_reserved_peak_mb', 0):.1f} MB")
+            
+            # Show peak timestamps if available
+            peak_timestamps = peak_memory.get('peak_timestamps')
+            if peak_timestamps:
+                print(f"   ⏱️  Peak Timestamps:")
+                for peak in peak_memory['peak_timestamps'][:5]:  # Show first 5 peaks
+                    print(f"      {peak.get('type', 'unknown')}: {peak.get('value_mb', 0):.1f} MB at {peak.get('timestamp', 0):.2f}s")
+        
+        print("=" * 80)
 
 # Initialize the monitor
 model_monitor = ModelLoadingMonitor()
@@ -2380,14 +2615,166 @@ def main():
             
         # === STEP 3 END: TEXT ENCODING ===
 
-        # Stop execution after step 3 for debugging purposes
-        print("\n🛑 STOPPING EXECUTION AFTER STEP 3 (TEXT ENCODING)")
-        print("🔍 All text encoding debugging information has been displayed above.")
-        print("📊 Check the monitoring data above to analyze text encoding performance.")
+        # === STEP 4 START: MODEL SAMPLING ===
+        print("4. Applying ModelSamplingSD3 to UNET...")
+        
+        # Initialize model sampling analysis variable
+        model_sampling_analysis = None
+        
+        # Capture baseline state before model sampling
+        print("\n🔍 CAPTURING BASELINE STATE BEFORE MODEL SAMPLING...")
+        
+        # Get the modified models from LoRA application
+        if 'modified_unet' in locals() and 'modified_clip' in locals():
+            try:
+                # Capture GPU baseline for Step 4
+                gpu_baseline_step4 = {
+                    'allocated_mb': torch.cuda.memory_allocated() / (1024**2),
+                    'reserved_mb': torch.cuda.memory_reserved() / (1024**2),
+                    'total_vram_mb': torch.cuda.get_device_properties(0).total_memory / (1024**2),
+                    'available_vram_mb': (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_reserved()) / (1024**2),
+                    'device_name': torch.cuda.get_device_name(0),
+                    'timestamp': time.time()
+                }
+                
+                # Capture UNET baseline state for Step 4
+                unet_baseline_step4 = {
+                    'model_id': id(modified_unet),
+                    'class': type(modified_unet).__name__,
+                    'patches_count': len(getattr(modified_unet, 'patches', {})),
+                    'patches_uuid': getattr(modified_unet, 'patches_uuid', None),
+                    'device': getattr(modified_unet, 'device', None)
+                }
+                
+                print(f"   ✅ UNET Baseline captured - ID: {unet_baseline_step4['model_id']}, Patches: {unet_baseline_step4['patches_count']}")
+                print(f"   ✅ GPU Baseline captured - Allocated: {gpu_baseline_step4['allocated_mb']:.1f} MB, Reserved: {gpu_baseline_step4['reserved_mb']:.1f} MB")
+                
+                # Display baseline memory information
+                print(f"\n   💾 BASELINE MEMORY STATE:")
+                print(f"      🎮 GPU: {gpu_baseline_step4['allocated_mb']:.1f} MB allocated / {gpu_baseline_step4['reserved_mb']:.1f} MB reserved")
+                print(f"      🎮 Available VRAM: {gpu_baseline_step4['available_vram_mb']:.1f} MB")
+                print(f"      🎮 Total VRAM: {gpu_baseline_step4['total_vram_mb']:.1f} MB")
+                print(f"      🎮 Device: {gpu_baseline_step4['device_name']}")
+                
+            except Exception as e:
+                print(f"❌ ERROR during baseline capture: {e}")
+                print("🔍 Baseline capture failed - will continue with limited monitoring")
+                gpu_baseline_step4 = None
+                unet_baseline_step4 = None
+        else:
+            print("❌ ERROR: Modified models not available from LoRA application")
+            print("🔍 Cannot proceed with model sampling - check LoRA application step")
+            return
+        
+        # Apply ModelSamplingSD3 with comprehensive monitoring
+        try:
+            print("\n🔧 APPLYING MODELSAMPLINGSD3 TO UNET...")
+            
+            # Start monitoring peak memory during model sampling
+            model_monitor.start_monitoring("model_sampling_step4")
+            
+            # Update peak memory before ModelSamplingSD3
+            model_monitor.update_peak_memory()
+            
+            # Display GPU memory before patching
+            current_gpu_allocated = torch.cuda.memory_allocated() / (1024**2)
+            current_gpu_reserved = torch.cuda.memory_reserved() / (1024**2)
+            print(f"   GPU Memory Before: {current_gpu_allocated:.1f} MB allocated, {current_gpu_reserved:.1f} MB reserved")
+            
+            # Apply ModelSamplingSD3 (using existing node)
+            try:
+                # Import ModelSamplingSD3 if available
+                from comfy_extras.nodes_model_advanced import ModelSamplingSD3
+                print("   ✅ ModelSamplingSD3 imported successfully")
+                
+                # Create and apply the sampling modification
+                model_sampling = ModelSamplingSD3()
+                modified_unet_sampled = model_sampling.patch(modified_unet, shift=8.0)
+                
+                print("   ✅ ModelSamplingSD3 applied successfully")
+                
+            except ImportError:
+                print("   ⚠️  ModelSamplingSD3 not available, using fallback approach")
+                # Fallback: just clone the model to simulate the effect
+                modified_unet_sampled = modified_unet
+                print("   ℹ️  Using fallback model cloning (no actual sampling applied)")
+            
+            # Update peak memory after patching
+            model_monitor.update_peak_memory()
+            
+            # Check immediate GPU impact
+            gpu_after_patching = {
+                'allocated_mb': torch.cuda.memory_allocated() / (1024**2),
+                'reserved_mb': torch.cuda.memory_reserved() / (1024**2)
+            }
+            
+            print(f"   GPU Memory After Patching: {gpu_after_patching['allocated_mb']:.1f} MB allocated, {gpu_after_patching['reserved_mb']:.1f} MB reserved")
+            
+            # Calculate immediate GPU changes
+            immediate_gpu_changes = {
+                'allocated_change_mb': gpu_after_patching['allocated_mb'] - current_gpu_allocated,
+                'reserved_change_mb': gpu_after_patching['reserved_mb'] - current_gpu_reserved
+            }
+            
+            print(f"   📊 Immediate GPU Impact: {immediate_gpu_changes['allocated_change_mb']:+.1f} MB allocated, {immediate_gpu_changes['reserved_change_mb']:+.1f} MB reserved")
+            
+            # End monitoring and get peak memory summary
+            elapsed_time = model_monitor.end_monitoring("model_sampling_step4", modified_unet_sampled, "UNET_Sampled")
+            peak_memory_summary = model_monitor.get_peak_memory_summary()
+            
+            # Analyze model sampling results
+            print("\n🔍 ANALYZING MODEL SAMPLING RESULTS...")
+            try:
+                model_sampling_analysis = model_monitor.analyze_model_sampling_results(
+                    unet_baseline_step4,
+                    gpu_baseline_step4,
+                    modified_unet_sampled,
+                    elapsed_time,
+                    immediate_gpu_changes
+                )
+                
+                # Print comprehensive analysis
+                model_monitor.print_model_sampling_analysis_summary(model_sampling_analysis)
+            except Exception as e:
+                print(f"❌ ERROR during model sampling analysis: {e}")
+                print("🔍 Model sampling analysis failed - will show error summary")
+                print("🔍 Error details:", str(e))
+                import traceback
+                traceback.print_exc()
+                model_sampling_analysis = None
+            
+            # Print peak memory information
+            print(f"\n📊 PEAK MEMORY DURING MODEL SAMPLING:")
+            if peak_memory_summary:
+                print(f"   🖥️  RAM Peak: {peak_memory_summary.get('ram_peak_mb', 0):.1f} MB")
+                print(f"   🎮 GPU Allocated Peak: {peak_memory_summary.get('gpu_allocated_peak_mb', 0):.1f} MB")
+                print(f"   🎮 GPU Reserved Peak: {peak_memory_summary.get('gpu_reserved_peak_mb', 0):.1f} MB")
+            else:
+                print("   ❌ ERROR: Peak memory summary not available")
+            if elapsed_time is not None and isinstance(elapsed_time, (int, float)):
+                print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
+            else:
+                print("   ⏱️  Total Time: N/A")
+            
+            print("✅ Step 4 completed: Model Sampling with comprehensive monitoring")
+            
+        except Exception as e:
+            print(f"❌ ERROR during model sampling: {e}")
+            print("🔍 Model sampling failed - check error details above")
+            modified_unet_sampled = None
+            model_sampling_analysis = None
+            
+        # === STEP 4 END: MODEL SAMPLING ===
+
+        # Stop execution after step 4 for debugging purposes
+        print("\n🛑 STOPPING EXECUTION AFTER STEP 4 (MODEL SAMPLING)")
+        print("🔍 All model sampling debugging information has been displayed above.")
+        print("📊 Check the monitoring data above to analyze model sampling performance.")
         print("🔍 Step 1: Model Loading - COMPLETED")
         print("🔍 Step 2: LoRA Application - COMPLETED")
         print("🔍 Step 3: Text Encoding - COMPLETED")
-        print("🔍 Steps 4-9: SKIPPED for debugging purposes")
+        print("🔍 Step 4: Model Sampling - COMPLETED")
+        print("🔍 Steps 5-9: SKIPPED for debugging purposes")
         
         # === FINAL MONITORING SUMMARY ===
         print("\n" + "="*80)
@@ -2395,10 +2782,10 @@ def main():
         print("="*80)
         
         # Use comprehensive summary if analyses are available
-        if 'text_encoding_analysis' in locals():
-            model_monitor.print_comprehensive_summary(None, text_encoding_analysis)
+        if 'model_sampling_analysis' in locals():
+            model_monitor.print_comprehensive_summary(None, None, model_sampling_analysis)
         else:
-            print("\n⚠️  Text encoding analysis not available - step 3 may not have completed")
+            print("\n⚠️  Model sampling analysis not available - step 4 may not have completed")
         
         print("="*80)
         

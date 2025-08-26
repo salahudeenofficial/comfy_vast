@@ -1,0 +1,152 @@
+STEP 4: MODEL SAMPLING MONITORING METRICS
+================================================================================
+
+OVERVIEW:
+Step 4 applies ModelSamplingSD3 to the UNET model, modifying its sampling behavior.
+This step is critical for understanding how model patching affects GPU memory and model structure.
+
+MONITORING PARAMETERS:
+================================================================================
+
+1. MODEL IDENTITY CHANGES:
+   - Model Cloned: Whether the UNET was cloned or modified in-place
+   - Class Changed: Whether the model class changed after patching
+   - Patches Added: Number of new patches added by ModelSamplingSD3
+   - UUID Changed: Whether the model's unique identifier changed
+   - Original Patches: Patch count before ModelSamplingSD3
+   - Modified Patches: Patch count after ModelSamplingSD3
+
+2. GPU MEMORY MONITORING:
+   - Before Step 4: GPU memory state after Text Encoding (Step 3)
+   - During Step 4: Real-time GPU memory changes during ModelSamplingSD3
+   - After Step 4: Final GPU memory state after UNET modification
+   
+   GPU METRICS:
+   - Allocated Memory: Actual GPU memory used by tensors (MB)
+   - Reserved Memory: Total GPU memory reserved by PyTorch (MB)
+   - Total VRAM: Total available GPU memory (MB)
+   - Available VRAM: Free GPU memory (MB)
+   - Memory Changes: Before/after differences (MB)
+   - Memory Efficiency: Allocated vs Reserved ratio (%)
+
+3. RAM MEMORY MONITORING:
+   - Used RAM: Current RAM usage (MB)
+   - Available RAM: Free RAM (MB)
+   - Total RAM: Total system RAM (MB)
+   - RAM Usage Percentage: Current RAM utilization (%)
+
+4. PERFORMANCE METRICS:
+   - Total Execution Time: Complete Step 4 duration (seconds)
+   - Patching Time: Time for ModelSamplingSD3 application
+   - Memory Transfer Time: GPU/CPU transfer operations
+   - Peak Memory Timestamps: When peak memory occurred
+
+5. UNET PATCHES ANALYSIS:
+   - Total Patched Keys: Number of model keys with patches
+   - Total Patches: Total number of patches applied
+   - Patch Types: Types of patches (sampling_shift, noise_schedule, etc.)
+   - Model Structure: How patches are organized
+
+6. VERIFICATION PARAMETERS:
+   - Model Placement: Correct device placement (GPU/CPU)
+   - Memory Management: Proper memory handling
+   - Patch Integrity: Verification that patches were applied correctly
+   - Model Functionality: Basic model operation verification
+
+MONITORING STRATEGY:
+================================================================================
+
+PHASE 1: BASELINE CAPTURE
+- Capture UNET state before ModelSamplingSD3
+- Record GPU memory usage and model placement
+- Document current patches and model structure
+
+PHASE 2: PATCHING PROCESS
+- Monitor ModelSamplingSD3 application in real-time
+- Track GPU memory changes during patching
+- Record timing for each operation
+
+PHASE 3: POST-PATCHING ANALYSIS
+- Capture modified UNET state
+- Analyze memory impact and changes
+- Verify patch application success
+
+PHASE 4: VERIFICATION & SUMMARY
+- Run verification checks
+- Generate comprehensive analysis report
+- Display all monitoring data
+
+OUTPUT FORMAT:
+================================================================================
+
+REAL-TIME MONITORING:
+```
+🔍 STARTING MONITORING FOR: MODEL_SAMPLING_STEP4
+   Baseline RAM: 8.2 GB used, 15.8 GB available
+   Baseline GPU: 2048 MB allocated, 3072 MB reserved
+   Available VRAM: 1024 MB
+
+🔧 APPLYING MODELSAMPLINGSD3 TO UNET...
+   GPU Memory Before: 2048.0 MB allocated, 3072.0 MB reserved
+   ✅ ModelSamplingSD3 applied successfully
+   GPU Memory After Patching: 2304.0 MB allocated, 3200.0 MB reserved
+   📊 Immediate GPU Impact: +256.0 MB allocated, +128.0 MB reserved
+```
+
+COMPREHENSIVE ANALYSIS:
+```
+🔍 MODEL SAMPLING ANALYSIS SUMMARY
+================================================================================
+✅ ModelSamplingSD3 Success: YES
+⏱️  Total Execution Time: 0.045 seconds
+
+🔧 UNET MODEL CHANGES:
+   Model Cloned: ✅ YES
+   Class Changed: ❌ NO
+   Patches Added: 3
+   UUID Changed: ✅ YES
+   Original Patches: 1053
+   Modified Patches: 1056
+
+💾 GPU MEMORY IMPACT:
+   🎮 GPU MEMORY BREAKDOWN:
+      Baseline State:
+         Allocated: 2048.0 MB
+         Reserved: 3072.0 MB
+         Available VRAM: 1024.0 MB
+      Current State:
+         Allocated: 2304.0 MB
+         Reserved: 3200.0 MB
+         Available VRAM: 896.0 MB
+      Changes:
+         Allocated Change: +256.0 MB (+12.5%)
+         Reserved Change: +128.0 MB (+4.2%)
+         Available VRAM Change: -128.0 MB (-12.5%)
+
+📊 PEAK MEMORY DURING MODEL SAMPLING:
+   🎮 GPU Allocated Peak: 2304.0 MB
+   🎮 GPU Reserved Peak: 3200.0 MB
+   ⏱️  Peak Timestamps:
+      gpu_allocated: 2304.0 MB at 0.023s
+      gpu_reserved: 3200.0 MB at 0.045s
+```
+
+INTEGRATION:
+================================================================================
+
+This monitoring integrates with the existing ModelLoadingMonitor class:
+- Reuses existing methods: track_model_identity_changes, analyze_lora_patches
+- Extends with new methods: capture_model_sampling_baseline, analyze_model_sampling_results
+- Integrates with comprehensive summary: print_comprehensive_summary
+- Follows same monitoring pattern: start_monitoring, update_peak_memory, end_monitoring
+
+EXIT BEHAVIOR:
+================================================================================
+
+After Step 4 completes:
+- Script stops execution (exits after Step 4)
+- Displays comprehensive monitoring summary
+- Shows all 4 steps completed (Model Loading, LoRA, Text Encoding, Model Sampling)
+- Steps 5-9 are skipped for debugging purposes
+
+This provides a complete checkpoint for comparing the workflow up to the Model Sampling step. 
