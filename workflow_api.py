@@ -1722,6 +1722,26 @@ class ModelLoadingMonitor:
             'UNET'
         )
         
+        # Debug: Show UNET structure
+        print(f"   🔍 DEBUG: modified_unet type: {type(modified_unet).__name__}")
+        print(f"   🔍 DEBUG: modified_unet has patches: {hasattr(modified_unet, 'patches')}")
+        if hasattr(modified_unet, 'patches'):
+            print(f"   🔍 DEBUG: patches count: {len(modified_unet.patches)}")
+            print(f"   🔍 DEBUG: patches type: {type(modified_unet.patches).__name__}")
+        
+        print(f"   🔍 DEBUG: modified_unet has patcher: {hasattr(modified_unet, 'patcher')}")
+        if hasattr(modified_unet, 'patcher'):
+            print(f"   🔍 DEBUG: patcher type: {type(modified_unet.patcher).__name__}")
+            if hasattr(modified_unet.patcher, 'patches'):
+                print(f"   🔍 DEBUG: patcher.patches count: {len(modified_unet.patcher.patches)}")
+        
+        print(f"   🔍 DEBUG: modified_unet dir: {[attr for attr in dir(modified_unet) if not attr.startswith('_')][:10]}")
+        
+        # Check for other patch-related attributes
+        patch_attrs = [attr for attr in dir(modified_unet) if 'patch' in attr.lower()]
+        if patch_attrs:
+            print(f"   🔍 DEBUG: Patch-related attributes: {patch_attrs}")
+        
         # Analyze UNET patches
         unet_patches = self.analyze_lora_patches(modified_unet, 'UNET')
         
@@ -2406,30 +2426,31 @@ def main():
         text_encoding_analysis = None
         
         # Capture baseline state before text encoding
-        print("\n🔍 CAPTURING BASELINE STATE BEFORE TEXT ENCODING...")
+        # print("\n🔍 CAPTURING BASELINE STATE BEFORE TEXT ENCODING...")
         
         # Get the modified models from LoRA application
         if 'modified_unet' in locals() and 'modified_clip' in locals():
-            try:
-                text_encoding_baseline = model_monitor.capture_text_encoding_baseline(
-                    modified_unet, 
-                    modified_clip
-                )
-                
-                print(f"   ✅ UNET Baseline captured - ID: {text_encoding_baseline.get('unet', {}).get('model_id', 'N/A')}")
-                print(f"   ✅ CLIP Baseline captured - ID: {text_encoding_baseline.get('clip', {}).get('model_id', 'N/A')}")
-                
-                # Display baseline memory information
-                print(f"\n   💾 BASELINE MEMORY STATE:")
-                ram_info = text_encoding_baseline.get('ram', {})
-                print(f"      🖥️  RAM: {ram_info.get('used_mb', 0):.1f} MB used / {ram_info.get('total_mb', 0):.1f} MB total ({ram_info.get('percent_used', 0):.1f}%)")
-                gpu_info = text_encoding_baseline.get('gpu')
-                if gpu_info:
-                    print(f"      🎮 GPU: {gpu_info.get('allocated', 0) / (1024**2):.1f} MB allocated / {gpu_info.get('total', 0) / (1024**2):.1f} MB total")
-            except Exception as e:
-                print(f"❌ ERROR during baseline capture: {e}")
-                print("🔍 Baseline capture failed - will continue with limited monitoring")
-                text_encoding_baseline = None
+            # try:
+            #     text_encoding_baseline = model_monitor.capture_text_encoding_baseline(
+            #         modified_unet, 
+            #         modified_clip
+            #     )
+            #     
+            #     print(f"   ✅ UNET Baseline captured - ID: {text_encoding_baseline.get('unet', {}).get('model_id', 'N/A')}")
+            #     print(f"   ✅ CLIP Baseline captured - ID: {text_encoding_baseline.get('clip', {}).get('model_id', 'N/A')}")
+            #     
+            #     # Display baseline memory information
+            #     print(f"\n   💾 BASELINE MEMORY STATE:")
+            #     ram_info = text_encoding_baseline.get('ram', {})
+            #     print(f"      🖥️  RAM: {ram_info.get('used_mb', 0):.1f} MB used / {ram_info.get('total_mb', 0):.1f} MB total ({ram_info.get('percent_used', 0):.1f}%)")
+            #     gpu_info = text_encoding_baseline.get('gpu')
+            #     if gpu_info:
+            #         print(f"      🎮 GPU: {gpu_info.get('allocated', 0) / (1024**2):.1f} MB allocated / {gpu_info.get('total', 0) / (1024**2):.1f} MB total")
+            # except Exception as e:
+            #     print(f"❌ ERROR during baseline capture: {e}")
+            #     print("🔍 Baseline capture failed - will continue with limited monitoring")
+            #     text_encoding_baseline = None
+            pass
         else:
             print("❌ ERROR: Modified models not available from LoRA application")
             print("🔍 Cannot proceed with text encoding - check LoRA application step")
@@ -2481,65 +2502,65 @@ def main():
             # model_monitor.update_peak_memory()
             
             # Extract conditioning from tuples - try different extraction strategies
-            print("   🔍 Extracting conditioning tensors...")
+            # print("   🔍 Extracting conditioning tensors...")
             
             # Strategy 1: Try direct extraction
-            positive_cond = positive_cond_tuple
-            negative_cond = negative_cond_tuple
+            # positive_cond = positive_cond_tuple
+            # negative_cond = negative_cond_tuple
             
             # Strategy 2: If it's a list/tuple, try first element
-            if isinstance(positive_cond_tuple, (list, tuple)) and len(positive_cond_tuple) > 0:
-                positive_cond = positive_cond_tuple[0]
-                print(f"   🔍 Extracted positive_cond from positive_cond_tuple[0]")
+            # if isinstance(positive_cond_tuple, (list, tuple)) and len(positive_cond_tuple) > 0:
+            #     positive_cond = positive_cond_tuple[0]
+            #     print(f"   🔍 Extracted positive_cond from positive_cond_tuple[0]")
             
-            if isinstance(negative_cond_tuple, (list, tuple)) and len(negative_cond_tuple) > 0:
-                negative_cond = negative_cond_tuple[0]
-                print(f"   🔍 Extracted negative_cond from negative_cond_tuple[0]")
+            # if isinstance(negative_cond_tuple, (list, tuple)) and len(negative_cond_tuple) > 0:
+            #     negative_cond = negative_cond_tuple[0]
+            #     print(f"   🔍 Extracted negative_cond from negative_cond_tuple[0]")
             
             # Strategy 3: If it's a dict, look for tensor-like objects
-            if isinstance(positive_cond, dict):
-                for key, value in positive_cond.items():
-                    if hasattr(value, 'shape'):
-                        positive_cond = value
-                        print(f"   🔍 Found positive tensor in dict['{key}']")
-                        break
+            # if isinstance(positive_cond, dict):
+            #     for key, value in positive_cond.items():
+            #         if hasattr(value, 'shape'):
+            #             positive_cond = value
+            #             print(f"   🔍 Found positive tensor in dict['{key}']")
+            #             break
             
-            if isinstance(negative_cond, dict):
-                for key, value in negative_cond.items():
-                    if hasattr(value, 'shape'):
-                        negative_cond = value
-                        print(f"   🔍 Found negative tensor in dict['{key}']")
-                        break
+            # if isinstance(negative_cond, dict):
+            #     for key, value in negative_cond.items():
+            #         if hasattr(value, 'shape'):
+            #             negative_cond = value
+            #             print(f"   🔍 Found negative tensor in dict['{key}']")
+            #             break
             
             # Strategy 4: Recursive deep search for nested structures
-            if (positive_cond is None or not hasattr(positive_cond, 'shape')) and positive_cond_tuple is not None:
-                print(f"   🔍 Strategy 4: Recursive search for positive tensor...")
-                positive_cond, reason = model_monitor._extract_tensor_recursively(positive_cond_tuple)
-                if positive_cond is not None:
-                    print(f"   ✅ Strategy 4 SUCCESS for positive: {reason}")
-                else:
-                    print(f"   ❌ Strategy 4 FAILED for positive: {reason}")
+            # if (positive_cond is None or not hasattr(positive_cond, 'shape')) and positive_cond_tuple is not None:
+            #     print(f"   🔍 Strategy 4: Recursive search for positive tensor...")
+            #     positive_cond, reason = model_monitor._extract_tensor_recursively(positive_cond_tuple)
+            #     if positive_cond is not None:
+            #         print(f"   ✅ Strategy 4 SUCCESS for positive: {reason}")
+            #     else:
+            #         print(f"   ❌ Strategy 4 FAILED for positive: {reason}")
             
-            if (negative_cond is None or not hasattr(negative_cond, 'shape')) and negative_cond_tuple is not None:
-                print(f"   🔍 Strategy 4: Recursive search for negative tensor...")
-                negative_cond, reason = model_monitor._extract_tensor_recursively(negative_cond_tuple)
-                if negative_cond is not None:
-                    print(f"   ✅ Strategy 4 SUCCESS for negative: {reason}")
-                else:
-                    print(f"   ❌ Strategy 4 FAILED for negative: {reason}")
+            # if (negative_cond is None or not hasattr(negative_cond, 'shape')) and negative_cond_tuple is not None:
+            #     print(f"   🔍 Strategy 4: Recursive search for negative tensor...")
+            #     negative_cond, reason = model_monitor._extract_tensor_recursively(negative_cond_tuple)
+            #     if negative_cond is not None:
+            #         print(f"   ✅ Strategy 4 SUCCESS for negative: {reason}")
+            #     else:
+            #         print(f"   ❌ Strategy 4 FAILED for negative: {reason}")
             
-            print(f"   🔍 Final positive_cond type: {type(positive_cond).__name__}")
-            print(f"   🔍 Final negative_cond type: {type(negative_cond).__name__}")
+            # print(f"   🔍 Final positive_cond type: {type(positive_cond).__name__}")
+            # print(f"   🔍 Final negative_cond type: {type(negative_cond).__name__}")
             
-            if positive_cond is not None and hasattr(positive_cond, 'shape'):
-                print(f"   ✅ Positive conditioning tensor found: {positive_cond.shape}")
-            else:
-                print(f"   ❌ Positive conditioning tensor not found or invalid")
+            # if positive_cond is not None and hasattr(positive_cond, 'shape'):
+            #     print(f"   ✅ Positive conditioning tensor found: {positive_cond.shape}")
+            # else:
+            #     print(f"   ❌ Positive conditioning tensor not found or invalid")
             
-            if negative_cond is not None and hasattr(negative_cond, 'shape'):
-                print(f"   ✅ Negative conditioning tensor found: {negative_cond.shape}")
-            else:
-                print(f"   ❌ Negative conditioning tensor not found or invalid")
+            # if negative_cond is not None and hasattr(negative_cond, 'shape'):
+            #     print(f"   ✅ Negative conditioning tensor found: {negative_cond.shape}")
+            # else:
+            #     print(f"   ❌ Negative conditioning tensor not found or invalid")
             
             # End monitoring and get peak memory summary
             # elapsed_time = model_monitor.end_monitoring("text_encoding", [positive_cond, negative_cond], "TextEncoding_Result")
@@ -2586,34 +2607,34 @@ def main():
             print("✅ Step 3 completed: Text Encoding (monitoring disabled)")
             
             # Check output directory contents
-            print(f"\n📁 CHECKING OUTPUT DIRECTORY CONTENTS:")
-            output_dir = "./W_out/step3"
-            if os.path.exists(output_dir):
-                try:
-                    files = os.listdir(output_dir)
-                    if files:
-                        print(f"   📂 Directory '{output_dir}' contains {len(files)} files:")
-                        for file in sorted(files):
-                            filepath = os.path.join(output_dir, file)
-                            if os.path.isfile(filepath):
-                                size_mb = os.path.getsize(filepath) / (1024**2)
-                                print(f"      📄 {file} ({size_mb:.4f} MB)")
-                            else:
-                                print(f"      📁 {file} (directory)")
-                    else:
-                        print(f"   📂 Directory '{output_dir}' is empty")
-                except Exception as e:
-                    print(f"   ⚠️  Could not read directory '{output_dir}': {e}")
-            else:
-                print(f"   ❌ Directory '{output_dir}' does not exist")
-                print(f"   💡 Current working directory: {os.getcwd()}")
-                print(f"   💡 Absolute path: {os.path.abspath(output_dir)}")
+            # print(f"\n📁 CHECKING OUTPUT DIRECTORY CONTENTS:")
+            # output_dir = "./W_out/step3"
+            # if os.path.exists(output_dir):
+            #     try:
+            #         files = os.listdir(output_dir)
+            #         if files:
+            #         print(f"   📂 Directory '{output_dir}' contains {len(files)} files:")
+            #         for file in sorted(files):
+            #         filepath = os.path.join(output_dir, file)
+            #         if os.path.isfile(filepath):
+            #         size_mb = os.path.getsize(filepath) / (1024**2)
+            #         print(f"      📄 {file} ({size_mb:.4f} MB)")
+            #         else:
+            #         print(f"      📁 {file} (directory)")
+            #         else:
+            #         print(f"   📂 Directory '{output_dir}' is empty")
+            #         except Exception as e:
+            #         print(f"   ⚠️  Could not read directory '{output_dir}': {e}")
+            #         else:
+            #         print(f"   ❌ Directory '{output_dir}' does not exist")
+            #         print(f"   💡 Current working directory: {os.getcwd()}")
+            #         print(f"   💡 Absolute path: {os.path.abspath(output_dir)}")
             
         except Exception as e:
             print(f"❌ ERROR during text encoding: {e}")
             print("🔍 Text encoding failed - check error details above")
-            positive_cond = None
-            negative_cond = None
+            # positive_cond = None
+            # negative_cond = None
             text_encoding_analysis = None
             
         # === STEP 3 END: TEXT ENCODING ===
@@ -2695,7 +2716,27 @@ def main():
                 
                 # Create and apply the sampling modification
                 model_sampling = ModelSamplingSD3()
-                modified_unet_sampled = model_sampling.patch(modified_unet, shift=8.0)
+                modified_unet_sampled_tuple = model_sampling.patch(modified_unet, shift=8.0)
+                
+                # Debug: Show what was returned
+                print(f"   🔍 ModelSamplingSD3.patch() returned: {type(modified_unet_sampled_tuple).__name__}")
+                if modified_unet_sampled_tuple is not None:
+                    print(f"   🔍 Returned object length: {len(modified_unet_sampled_tuple) if hasattr(modified_unet_sampled_tuple, '__len__') else 'N/A'}")
+                    print(f"   🔍 Returned object repr: {repr(modified_unet_sampled_tuple)[:200]}...")
+                
+                # Extract the actual model from the tuple
+                if isinstance(modified_unet_sampled_tuple, (list, tuple)) and len(modified_unet_sampled_tuple) > 0:
+                    modified_unet_sampled = modified_unet_sampled_tuple[0]
+                    print(f"   🔍 Extracted modified_unet_sampled from tuple[0]")
+                else:
+                    modified_unet_sampled = modified_unet_sampled_tuple
+                    print(f"   🔍 Using returned object directly (not a tuple)")
+                
+                print(f"   🔍 Final modified_unet_sampled type: {type(modified_unet_sampled).__name__}")
+                if hasattr(modified_unet_sampled, 'patches'):
+                    print(f"   🔍 Final model has patches: {len(modified_unet_sampled.patches)}")
+                else:
+                    print(f"   🔍 Final model has no patches attribute")
                 
                 print("   ✅ ModelSamplingSD3 applied successfully")
                 
