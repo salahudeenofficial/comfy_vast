@@ -1702,7 +1702,7 @@ class ModelLoadingMonitor:
         """Analyze the results of ModelSamplingSD3 application"""
         
         # Check if baselines are available
-        if unet_baseline is None or gpu_baseline is None:
+        if unet_baseline is None:
             print("⚠️  WARNING: Baselines not available - using limited analysis")
         
         # Get current memory state
@@ -1737,7 +1737,7 @@ class ModelLoadingMonitor:
             'immediate_gpu_changes': immediate_gpu_changes,
             'peak_memory': self.get_peak_memory_summary(),
             'unet_baseline': unet_baseline,
-            'gpu_baseline': gpu_baseline,
+            'gpu_baseline': unet_baseline['gpu'] if unet_baseline else None,
             'current_memory': {
                 'ram': current_ram,
                 'gpu': current_gpu
@@ -1750,7 +1750,7 @@ class ModelLoadingMonitor:
         """Calculate memory usage changes during model sampling"""
         try:
             # Check if baselines are available
-            if unet_baseline is None or gpu_baseline is None:
+            if unet_baseline is None:
                 return {'error': 'Baselines not available for memory calculation'}
             
             # Calculate RAM changes
@@ -1768,8 +1768,8 @@ class ModelLoadingMonitor:
             
             # Calculate GPU changes
             gpu_changes = None
-            if current_gpu and gpu_baseline.get('gpu'):
-                baseline_gpu = gpu_baseline['gpu']
+            if current_gpu and unet_baseline.get('gpu'):
+                baseline_gpu = unet_baseline['gpu']
                 allocated_change = current_gpu['allocated'] - baseline_gpu.get('allocated', 0)
                 reserved_change = current_gpu['reserved'] - baseline_gpu.get('reserved', 0)
                 
@@ -2448,10 +2448,10 @@ def main():
             print("\n🔧 ENCODING TEXT PROMPTS...")
             
             # Start monitoring peak memory during text encoding
-            model_monitor.start_monitoring("text_encoding")
+            # model_monitor.start_monitoring("text_encoding")
             
             # Update peak memory before text encoding
-            model_monitor.update_peak_memory()
+            # model_monitor.update_peak_memory()
             
             # Create text encoder and encode positive prompt
             print("   🔤 Encoding positive prompt...")
@@ -2465,7 +2465,7 @@ def main():
                 print(f"   🔍 Positive encoding result repr: {repr(positive_cond_tuple)[:200]}...")
             
             # Update peak memory after positive encoding
-            model_monitor.update_peak_memory()
+            # model_monitor.update_peak_memory()
             
             # Encode negative prompt
             print("   🔤 Encoding negative prompt...")
@@ -2478,7 +2478,7 @@ def main():
                 print(f"   🔍 Negative encoding result repr: {repr(negative_cond_tuple)[:200]}...")
             
             # Update peak memory after negative encoding
-            model_monitor.update_peak_memory()
+            # model_monitor.update_peak_memory()
             
             # Extract conditioning from tuples - try different extraction strategies
             print("   🔍 Extracting conditioning tensors...")
@@ -2542,23 +2542,25 @@ def main():
                 print(f"   ❌ Negative conditioning tensor not found or invalid")
             
             # End monitoring and get peak memory summary
-            elapsed_time = model_monitor.end_monitoring("text_encoding", [positive_cond, negative_cond], "TextEncoding_Result")
-            peak_memory_summary = model_monitor.get_peak_memory_summary()
+            # elapsed_time = model_monitor.end_monitoring("text_encoding", [positive_cond, negative_cond], "TextEncoding_Result")
+            # peak_memory_summary = model_monitor.get_peak_memory_summary()
             
             # Analyze text encoding results
             print("\n🔍 ANALYZING TEXT ENCODING RESULTS...")
             try:
-                text_encoding_analysis = model_monitor.analyze_text_encoding_results(
-                    text_encoding_baseline, 
-                    positive_cond, 
-                    negative_cond, 
-                    positive_prompt,
-                    negative_prompt,
-                    elapsed_time
-                )
+                # text_encoding_analysis = model_monitor.analyze_text_encoding_results(
+                #     text_encoding_baseline, 
+                #     positive_cond, 
+                #     negative_cond, 
+                #     positive_prompt,
+                #     negative_prompt,
+                #     elapsed_time
+                # )
                 
                 # Print comprehensive analysis
-                model_monitor.print_text_encoding_analysis_summary(text_encoding_analysis)
+                # model_monitor.print_text_encoding_analysis_summary(text_encoding_analysis)
+                print("   ℹ️  Text encoding analysis disabled for debugging")
+                text_encoding_analysis = None
             except Exception as e:
                 print(f"❌ ERROR during text encoding analysis: {e}")
                 print("🔍 Text encoding analysis failed - will show error summary")
@@ -2569,18 +2571,19 @@ def main():
             
             # Print peak memory information
             print(f"\n📊 PEAK MEMORY DURING TEXT ENCODING:")
-            if peak_memory_summary:
-                print(f"   🖥️  RAM Peak: {peak_memory_summary.get('ram_peak_mb', 0):.1f} MB")
-                print(f"   🎮 GPU Allocated Peak: {peak_memory_summary.get('gpu_allocated_peak_mb', 0):.1f} MB")
-                print(f"   🎮 GPU Reserved Peak: {peak_memory_summary.get('gpu_reserved_peak_mb', 0):.1f} MB")
-            else:
-                print("   ❌ ERROR: Peak memory summary not available")
-            if elapsed_time is not None and isinstance(elapsed_time, (int, float)):
-                print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
-            else:
-                print("   ⏱️  Total Time: N/A")
+            # if peak_memory_summary:
+            #     print(f"   🖥️  RAM Peak: {peak_memory_summary.get('ram_peak_mb', 0):.1f} MB")
+            #     print(f"   🎮 GPU Allocated Peak: {peak_memory_summary.get('gpu_allocated_peak_mb', 0):.1f} MB")
+            #     print(f"   🎮 GPU Reserved Peak: {peak_memory_summary.get('gpu_reserved_peak_mb', 0):.1f} MB")
+            # else:
+            #     print("   ❌ ERROR: Peak memory summary not available")
+            # if elapsed_time is not None and isinstance(elapsed_time, (int, float)):
+            #     print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
+            # else:
+            #     print("   ⏱️  Total Time: N/A")
+            print("   ℹ️  Peak memory monitoring disabled for debugging")
             
-            print("✅ Step 3 completed: Text Encoding with comprehensive monitoring")
+            print("✅ Step 3 completed: Text Encoding (monitoring disabled)")
             
             # Check output directory contents
             print(f"\n📁 CHECKING OUTPUT DIRECTORY CONTENTS:")
@@ -2627,39 +2630,42 @@ def main():
         # Get the modified models from LoRA application
         if 'modified_unet' in locals() and 'modified_clip' in locals():
             try:
-                # Capture GPU baseline for Step 4
-                gpu_baseline_step4 = {
-                    'allocated_mb': torch.cuda.memory_allocated() / (1024**2),
-                    'reserved_mb': torch.cuda.memory_reserved() / (1024**2),
-                    'total_vram_mb': torch.cuda.get_device_properties(0).total_memory / (1024**2),
-                    'available_vram_mb': (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_reserved()) / (1024**2),
-                    'device_name': torch.cuda.get_device_name(0),
-                    'timestamp': time.time()
-                }
-                
-                # Capture UNET baseline state for Step 4
+                # Capture UNET baseline state for Step 4 (includes both UNET and GPU info)
                 unet_baseline_step4 = {
-                    'model_id': id(modified_unet),
-                    'class': type(modified_unet).__name__,
-                    'patches_count': len(getattr(modified_unet, 'patches', {})),
-                    'patches_uuid': getattr(modified_unet, 'patches_uuid', None),
-                    'device': getattr(modified_unet, 'device', None)
+                    'unet': {
+                        'model_id': id(modified_unet),
+                        'class': type(modified_unet).__name__,
+                        'device': getattr(modified_unet, 'device', None),
+                        'patches_count': len(getattr(modified_unet, 'patches', {})),
+                        'patches_uuid': getattr(modified_unet, 'patches_uuid', None)
+                    },
+                    'ram': {
+                        'used_mb': psutil.virtual_memory().used / (1024**2),
+                        'available_mb': psutil.virtual_memory().available / (1024**2),
+                        'total_mb': psutil.virtual_memory().total / (1024**2),
+                        'percent_used': psutil.virtual_memory().percent
+                    },
+                    'gpu': {
+                        'allocated': torch.cuda.memory_allocated(),
+                        'reserved': torch.cuda.memory_reserved(),
+                        'total': torch.cuda.get_device_properties(0).total_memory,
+                        'device_name': torch.cuda.get_device_name(0)
+                    }
                 }
                 
-                print(f"   ✅ UNET Baseline captured - ID: {unet_baseline_step4['model_id']}, Patches: {unet_baseline_step4['patches_count']}")
-                print(f"   ✅ GPU Baseline captured - Allocated: {gpu_baseline_step4['allocated_mb']:.1f} MB, Reserved: {gpu_baseline_step4['reserved_mb']:.1f} MB")
+                print(f"   ✅ UNET Baseline captured - ID: {unet_baseline_step4['unet']['model_id']}, Patches: {unet_baseline_step4['unet']['patches_count']}")
+                print(f"   ✅ GPU Baseline captured - Allocated: {unet_baseline_step4['gpu']['allocated'] / (1024**2):.1f} MB, Reserved: {unet_baseline_step4['gpu']['reserved'] / (1024**2):.1f} MB")
                 
                 # Display baseline memory information
                 print(f"\n   💾 BASELINE MEMORY STATE:")
-                print(f"      🎮 GPU: {gpu_baseline_step4['allocated_mb']:.1f} MB allocated / {gpu_baseline_step4['reserved_mb']:.1f} MB reserved")
-                print(f"      🎮 Available VRAM: {gpu_baseline_step4['available_vram_mb']:.1f} MB")
-                print(f"      🎮 Total VRAM: {gpu_baseline_step4['total_vram_mb']:.1f} MB")
-                print(f"      🎮 Device: {gpu_baseline_step4['device_name']}")
+                print(f"      🎮 GPU: {unet_baseline_step4['gpu']['allocated'] / (1024**2):.1f} MB allocated / {unet_baseline_step4['gpu']['reserved'] / (1024**2):.1f} MB reserved")
+                print(f"      🎮 Available VRAM: {(unet_baseline_step4['gpu']['total'] - unet_baseline_step4['gpu']['reserved']) / (1024**2):.1f} MB")
+                print(f"      🎮 Total VRAM: {unet_baseline_step4['gpu']['total'] / (1024**2):.1f} MB")
+                print(f"      🎮 Device: {unet_baseline_step4['gpu']['device_name']}")
                 
             except Exception as e:
                 print(f"❌ ERROR during baseline capture: {e}")
                 print("🔍 Baseline capture failed - will continue with limited monitoring")
-                gpu_baseline_step4 = None
                 unet_baseline_step4 = None
         else:
             print("❌ ERROR: Modified models not available from LoRA application")
@@ -2726,8 +2732,8 @@ def main():
             print("\n🔍 ANALYZING MODEL SAMPLING RESULTS...")
             try:
                 model_sampling_analysis = model_monitor.analyze_model_sampling_results(
-                    unet_baseline_step4,
-                    gpu_baseline_step4,
+                    unet_baseline_step4,  # This contains both unet and gpu baselines
+                    None,  # gpu_baseline is now part of unet_baseline_step4
                     modified_unet_sampled,
                     elapsed_time,
                     immediate_gpu_changes
