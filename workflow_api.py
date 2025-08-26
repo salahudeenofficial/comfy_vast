@@ -2282,12 +2282,12 @@ def find_safu_files():
                 safu_jpg = os.path.join(location, "safu.jpg")
                 
                 if os.path.exists(safu_mp4) and "mp4" not in safu_files:
-                    safu_files["mp4"] = safu_mp4
-                    print(f"   ✅ Found safu.mp4 at: {safu_mp4}")
+                    safu_files["mp4"] = os.path.abspath(safu_mp4)
+                    print(f"   ✅ Found safu.mp4 at: {safu_files['mp4']}")
                 
                 if os.path.exists(safu_jpg) and "jpg" not in safu_files:
-                    safu_files["jpg"] = safu_jpg
-                    print(f"   ✅ Found safu.jpg at: {safu_jpg}")
+                    safu_files["jpg"] = os.path.abspath(safu_jpg)
+                    print(f"   ✅ Found safu.jpg at: {safu_files['jpg']}")
                 
                 if len(safu_files) == 2:
                     break
@@ -2564,6 +2564,9 @@ def main():
         # Use found files or fall back to current directory
         if "mp4" in safu_files:
             video_file = safu_files["mp4"]
+            # Ensure the path is properly resolved
+            if not os.path.isabs(video_file):
+                video_file = os.path.abspath(video_file)
             print(f"   🎥 Using video file: {video_file}")
         else:
             video_file = "safu.mp4"
@@ -2571,6 +2574,9 @@ def main():
         
         if "jpg" in safu_files:
             image_file = safu_files["jpg"]
+            # Ensure the path is properly resolved
+            if not os.path.isabs(image_file):
+                image_file = os.path.abspath(image_file)
             print(f"   🖼️  Using image file: {image_file}")
         else:
             image_file = "safu.jpg"
