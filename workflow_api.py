@@ -29,10 +29,25 @@ def attempt_vhs_import():
     """Attempt to import VHS classes directly from custom_nodes"""
     global VHS_AVAILABLE, VHS_LoadVideoUpload, VHS_LoadVideoPath
     
+    print("🔍 ATTEMPTING VHS IMPORT...")
+    
     # Strategy 1: Direct import from custom_nodes directory
     comfyui_path = find_path("ComfyUI")
     if comfyui_path and os.path.isdir(comfyui_path):
+        print(f"   🔍 Found ComfyUI path: {comfyui_path}")
         custom_nodes_path = os.path.join(comfyui_path, 'custom_nodes')
+        print(f"   🔍 Custom nodes path: {custom_nodes_path}")
+        
+        if os.path.exists(custom_nodes_path):
+            print(f"   ✅ Custom nodes directory exists")
+            # List contents of custom_nodes directory
+            try:
+                custom_node_contents = os.listdir(custom_nodes_path)
+                print(f"   📂 Custom nodes contents: {custom_node_contents}")
+            except Exception as e:
+                print(f"   ⚠️  Could not list custom nodes contents: {e}")
+        else:
+            print(f"   ❌ Custom nodes directory does not exist")
         
         # Try to find VHS in custom_nodes
         vhs_paths = [
@@ -50,6 +65,14 @@ def attempt_vhs_import():
                     # Add to Python path
                     if vhs_path not in sys.path:
                         sys.path.insert(0, vhs_path)
+                        print(f"      ✅ Added {vhs_path} to Python path")
+                    
+                    # List contents of VHS directory
+                    try:
+                        vhs_contents = os.listdir(vhs_path)
+                        print(f"      📂 VHS directory contents: {vhs_contents}")
+                    except Exception as e:
+                        print(f"      ⚠️  Could not list VHS contents: {e}")
                     
                     # Try multiple import strategies for this path
                     import_strategies = [
@@ -67,6 +90,7 @@ def attempt_vhs_import():
                     
                     for import_statement, strategy_name in import_strategies:
                         try:
+                            print(f"      🔍 Trying strategy: {strategy_name}")
                             # Execute the import statement
                             exec(import_statement)
                             VHS_LoadVideoUpload = LoadVideoUpload
@@ -77,17 +101,22 @@ def attempt_vhs_import():
                             print(f"   LoadVideoPath: {VHS_LoadVideoPath}")
                             return True
                         except ImportError as import_error:
-                            print(f"      ⚠️  Strategy '{strategy_name}' failed: {import_error}")
+                            print(f"         ⚠️  Strategy '{strategy_name}' failed: {import_error}")
                             continue
                         except Exception as e:
-                            print(f"      ⚠️  Strategy '{strategy_name}' error: {e}")
+                            print(f"         ⚠️  Strategy '{strategy_name}' error: {e}")
                             continue
                         
                 except Exception as e:
                     print(f"   ⚠️  Error processing {vhs_path}: {e}")
                     continue
+            else:
+                print(f"   ❌ VHS directory not found: {vhs_path}")
+    else:
+        print(f"   ❌ ComfyUI path not found")
     
     # Strategy 2: Try pip-installed package
+    print("   🔍 Trying pip-installed package...")
     try:
         from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
         VHS_LoadVideoUpload = LoadVideoUpload
@@ -95,18 +124,22 @@ def attempt_vhs_import():
         VHS_AVAILABLE = True
         print("✅ Successfully imported VHS from pip-installed package")
         return True
-    except ImportError:
-        pass
+    except ImportError as e:
+        print(f"      ❌ Pip package import failed: {e}")
     
     # Strategy 3: Try to find VHS in current working directory or subdirectories
+    print("   🔍 Searching current directory for VHS...")
     try:
         current_dir = os.getcwd()
+        print(f"      🔍 Current directory: {current_dir}")
         for root, dirs, files in os.walk(current_dir):
             if 'load_video_nodes.py' in files or 'videohelpersuite' in dirs:
                 try:
                     vhs_root = root
+                    print(f"      🔍 Found potential VHS location: {vhs_root}")
                     if vhs_root not in sys.path:
                         sys.path.insert(0, vhs_root)
+                        print(f"         ✅ Added {vhs_root} to Python path")
                     
                     # Try to import from this location
                     try:
@@ -116,13 +149,15 @@ def attempt_vhs_import():
                         VHS_AVAILABLE = True
                         print(f"✅ Successfully imported VHS from discovered location: {vhs_root}")
                         return True
-                    except ImportError:
-                        pass
+                    except ImportError as e:
+                        print(f"         ❌ Import failed from {vhs_root}: {e}")
+                        continue
                         
                 except Exception as e:
+                    print(f"         ⚠️  Error processing {vhs_root}: {e}")
                     continue
     except Exception as e:
-        pass
+        print(f"      ⚠️  Directory search failed: {e}")
     
     print("⚠️  Warning: Could not import VHS classes directly")
     print("   Will use fallback video loading approach")
@@ -3551,10 +3586,26 @@ def main():
         print("="*80)
         
         # Use comprehensive summary if analyses are available
-        if 'latent_generation_analysis' in locals():
-            model_monitor.print_comprehensive_summary(None, None, None, latent_generation_analysis)
+        if 'latent_generation_analysis' in locals() and latent_generation_analysis is not None:
+            try:
+                model_monitor.print_comprehensive_summary(None, None, None, latent_generation_analysis)
+            except Exception as summary_error:
+                print(f"\n⚠️  Error in comprehensive summary: {summary_error}")
+                print("   Showing basic completion status instead...")
+                print(f"\n🔍 BASIC WORKFLOW COMPLETION STATUS:")
+                print(f"   ✅ Step 1: Model Loading - COMPLETED")
+                print(f"   ✅ Step 2: LoRA Application - COMPLETED")
+                print(f"   ✅ Step 3: Text Encoding - COMPLETED")
+                print(f"   ✅ Step 4: Model Sampling - COMPLETED")
+                print(f"   ✅ Step 5: Input Preparation - COMPLETED")
         else:
             print("\n⚠️  Input preparation analysis not available - step 5 may not have completed")
+            print(f"\n🔍 BASIC WORKFLOW COMPLETION STATUS:")
+            print(f"   ✅ Step 1: Model Loading - COMPLETED")
+            print(f"   ✅ Step 2: LoRA Application - COMPLETED")
+            print(f"   ✅ Step 3: Text Encoding - COMPLETED")
+            print(f"   ✅ Step 4: Model Sampling - COMPLETED")
+            print(f"   ❌ Step 5: Input Preparation - FAILED or INCOMPLETE")
         
         print("="*80)
         
