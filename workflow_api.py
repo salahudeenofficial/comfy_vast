@@ -7,74 +7,124 @@ from typing import Sequence, Mapping, Any, Union
 import torch
 import numpy as np
 
+# Try to import video loading libraries
+try:
+    import torchvision.io as tvio
+    TORCHVISION_AVAILABLE = True
+except ImportError:
+    TORCHVISION_AVAILABLE = False
+
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+
 # Direct imports for VHS functionality
 VHS_AVAILABLE = False
 VHS_LoadVideoUpload = None
 VHS_LoadVideoPath = None
 
 def attempt_vhs_import():
-    """Attempt to import VHS classes with multiple fallback strategies"""
+    """Attempt to import VHS classes directly from custom_nodes"""
     global VHS_AVAILABLE, VHS_LoadVideoUpload, VHS_LoadVideoPath
     
-    # Strategy 1: Try to find ComfyUI directory and import from there
+    # Strategy 1: Direct import from custom_nodes directory
     comfyui_path = find_path("ComfyUI")
     if comfyui_path and os.path.isdir(comfyui_path):
-        # Try multiple import paths
-        import_paths = [
-            os.path.join(comfyui_path, 'custom_nodes', 'comfyui-videohelpersuite'),
-            os.path.join(comfyui_path, 'custom_nodes', 'VideoHelperSuite'),
-            os.path.join(comfyui_path, 'custom_nodes', 'videohelpersuite'),
-            os.path.join(os.path.dirname(__file__), 'custom_nodes', 'comfyui-videohelpersuite'),
-            os.path.join(os.path.dirname(__file__), 'custom_nodes', 'VideoHelperSuite'),
-            os.path.join(os.path.dirname(__file__), 'custom_nodes', 'videohelpersuite')
+        custom_nodes_path = os.path.join(comfyui_path, 'custom_nodes')
+        
+        # Try to find VHS in custom_nodes
+        vhs_paths = [
+            os.path.join(custom_nodes_path, 'comfyui-videohelpersuite'),
+            os.path.join(custom_nodes_path, 'VideoHelperSuite'),
+            os.path.join(custom_nodes_path, 'videohelpersuite'),
+            os.path.join(custom_nodes_path, 'ComfyUI-VideoHelperSuite'),
+            os.path.join(custom_nodes_path, 'ComfyUI-VideoHelperSuite-main')
         ]
         
-        for import_path in import_paths:
-            if os.path.exists(import_path):
+        for vhs_path in vhs_paths:
+            if os.path.exists(vhs_path):
+                print(f"   🔍 Found VHS directory: {vhs_path}")
                 try:
-                    if import_path not in sys.path:
-                        sys.path.insert(0, import_path)
+                    # Add to Python path
+                    if vhs_path not in sys.path:
+                        sys.path.insert(0, vhs_path)
                     
-                    # Try different import patterns
-                    try:
-                        from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
-                        print(f"✅ Successfully imported VHS from: {import_path}")
-                        VHS_AVAILABLE = True
-                        return True
-                    except ImportError:
-                        pass
+                    # Try multiple import strategies for this path
+                    import_strategies = [
+                        # Strategy 1: Direct import
+                        ("from load_video_nodes import LoadVideoUpload, LoadVideoPath", "direct"),
+                        # Strategy 2: From videohelpersuite submodule
+                        ("from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath", "videohelpersuite"),
+                        # Strategy 3: From nodes submodule
+                        ("from nodes.load_video_nodes import LoadVideoUpload, LoadVideoPath", "nodes"),
+                        # Strategy 4: From comfyui_videohelpersuite
+                        ("from comfyui_videohelpersuite.videohelpersuite.nodes import LoadVideoUpload, LoadVideoPath", "comfyui_videohelpersuite"),
+                        # Strategy 5: From comfyui_videohelpersuite.nodes
+                        ("from comfyui_videohelpersuite.nodes import LoadVideoUpload, LoadVideoPath", "comfyui_videohelpersuite.nodes")
+                    ]
+                    
+                    for import_statement, strategy_name in import_strategies:
+                        try:
+                            # Execute the import statement
+                            exec(import_statement)
+                            VHS_LoadVideoUpload = LoadVideoUpload
+                            VHS_LoadVideoPath = LoadVideoPath
+                            VHS_AVAILABLE = True
+                            print(f"✅ Successfully imported VHS classes using strategy '{strategy_name}' from: {vhs_path}")
+                            print(f"   LoadVideoUpload: {VHS_LoadVideoUpload}")
+                            print(f"   LoadVideoPath: {VHS_LoadVideoPath}")
+                            return True
+                        except ImportError as import_error:
+                            print(f"      ⚠️  Strategy '{strategy_name}' failed: {import_error}")
+                            continue
+                        except Exception as e:
+                            print(f"      ⚠️  Strategy '{strategy_name}' error: {e}")
+                            continue
                         
+                except Exception as e:
+                    print(f"   ⚠️  Error processing {vhs_path}: {e}")
+                    continue
+    
+    # Strategy 2: Try pip-installed package
+    try:
+        from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
+        VHS_LoadVideoUpload = LoadVideoUpload
+        VHS_LoadVideoPath = LoadVideoPath
+        VHS_AVAILABLE = True
+        print("✅ Successfully imported VHS from pip-installed package")
+        return True
+    except ImportError:
+        pass
+    
+    # Strategy 3: Try to find VHS in current working directory or subdirectories
+    try:
+        current_dir = os.getcwd()
+        for root, dirs, files in os.walk(current_dir):
+            if 'load_video_nodes.py' in files or 'videohelpersuite' in dirs:
+                try:
+                    vhs_root = root
+                    if vhs_root not in sys.path:
+                        sys.path.insert(0, vhs_root)
+                    
+                    # Try to import from this location
                     try:
                         from load_video_nodes import LoadVideoUpload, LoadVideoPath
-                        print(f"✅ Successfully imported VHS from: {import_path}")
+                        VHS_LoadVideoUpload = LoadVideoUpload
+                        VHS_LoadVideoPath = LoadVideoPath
                         VHS_AVAILABLE = True
+                        print(f"✅ Successfully imported VHS from discovered location: {vhs_root}")
                         return True
                     except ImportError:
                         pass
                         
                 except Exception as e:
                     continue
-    
-    # Strategy 2: Try to import from already loaded custom nodes
-    try:
-        # Check if VHS is already available in NODE_CLASS_MAPPINGS
-        if 'VHS_LoadVideo' in globals().get('NODE_CLASS_MAPPINGS', {}):
-            print("✅ VHS already available in NODE_CLASS_MAPPINGS")
-            VHS_AVAILABLE = True
-            return True
-    except:
+    except Exception as e:
         pass
     
-    # Strategy 3: Try pip-installed package
-    try:
-        from videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
-        print("✅ Successfully imported VHS from pip-installed package")
-        VHS_AVAILABLE = True
-        return True
-    except ImportError:
-        pass
-    
-    print("⚠️  Warning: Could not import VHS classes with any strategy")
+    print("⚠️  Warning: Could not import VHS classes directly")
     print("   Will use fallback video loading approach")
     VHS_AVAILABLE = False
     return False
@@ -2466,6 +2516,17 @@ def import_custom_nodes() -> dict:
 def main():
     print("🔍 Starting main function...")
     
+    # Show VHS import status at the beginning
+    print("\n🔍 VHS IMPORT STATUS:")
+    print(f"   VHS_AVAILABLE: {VHS_AVAILABLE}")
+    print(f"   VHS_LoadVideoPath: {VHS_LoadVideoPath}")
+    print(f"   VHS_LoadVideoUpload: {VHS_LoadVideoUpload}")
+    
+    if VHS_AVAILABLE:
+        print("   ✅ VHS classes successfully imported - will use for video loading")
+    else:
+        print("   ⚠️  VHS classes not available - will use fallback methods")
+    
     # Load custom nodes FIRST, before importing NODE_CLASS_MAPPINGS
     print("🔍 Attempting to import custom nodes...")
     custom_node_mappings = import_custom_nodes()
@@ -2618,37 +2679,112 @@ def main():
         except Exception as e:
             print(f"   Could not list directory contents: {e}")
         
-        if VHS_AVAILABLE and VHS_LoadVideoPath is not None and video_file_exists:
-            print("\n🎥 Loading video using direct VHS imports...")
-            print(f"   📁 Video file: {video_file} - EXISTS ({os.path.getsize(video_file) / (1024**2):.2f} MB)")
-            try:
-                # Use LoadVideoPath for direct file loading
-                video_loader = VHS_LoadVideoPath()
-                vhs_loadvideo_1 = video_loader.load_video(
-                    video=video_file,
-                    force_rate=0,
-                    custom_width=0,
-                    custom_height=0,
-                    frame_load_cap=0,
-                    skip_first_frames=0,
-                    select_every_nth=1
-                )
-                print("✅ Video loaded successfully using direct VHS import")
-            except Exception as e:
-                print(f"❌ Error loading video with direct import: {e}")
-                print("   This may be due to VHS compatibility issues or corrupted video file")
+        # Always try to load video, even without VHS
+        if video_file_exists:
+            print(f"\n🎥 Loading video: {video_file} - EXISTS ({os.path.getsize(video_file) / (1024**2):.2f} MB)")
+            
+            # Show VHS import status
+            print(f"   🔍 VHS Import Status:")
+            print(f"      VHS_AVAILABLE: {VHS_AVAILABLE}")
+            print(f"      VHS_LoadVideoPath: {VHS_LoadVideoPath}")
+            print(f"      VHS_LoadVideoUpload: {VHS_LoadVideoUpload}")
+            
+            if VHS_AVAILABLE and VHS_LoadVideoPath is not None:
+                print("   🔧 Using directly imported VHS LoadVideoPath for video loading...")
+                try:
+                    # Create instance of the directly imported VHS class
+                    video_loader = VHS_LoadVideoPath()
+                    print(f"   🔍 VHS LoadVideoPath instance created: {type(video_loader).__name__}")
+                    print(f"   🔍 VHS LoadVideoPath methods: {[m for m in dir(video_loader) if not m.startswith('_')][:10]}")
+                    
+                    # Check if load_video method exists
+                    if hasattr(video_loader, 'load_video'):
+                        print(f"   ✅ load_video method found")
+                        
+                        # Call the load_video method directly
+                        vhs_loadvideo_1 = video_loader.load_video(
+                            video=video_file,
+                            force_rate=0,
+                            custom_width=0,
+                            custom_height=0,
+                            frame_load_cap=0,
+                            skip_first_frames=0,
+                            select_every_nth=1
+                        )
+                        print("✅ Video loaded successfully using directly imported VHS LoadVideoPath")
+                        print(f"   🔍 Video data type: {type(vhs_loadvideo_1).__name__}")
+                        if isinstance(vhs_loadvideo_1, (list, tuple)) and len(vhs_loadvideo_1) > 0:
+                            print(f"   🔍 Video data length: {len(vhs_loadvideo_1)}")
+                            if hasattr(vhs_loadvideo_1[0], 'shape'):
+                                print(f"   🔍 Video tensor shape: {vhs_loadvideo_1[0].shape}")
+                    else:
+                        print(f"   ❌ load_video method not found in VHS_LoadVideoPath")
+                        print(f"   🔍 Available methods: {[m for m in dir(video_loader) if not m.startswith('_')]}")
+                        vhs_loadvideo_1 = None
+                        
+                except Exception as e:
+                    print(f"❌ Error loading video with directly imported VHS: {e}")
+                    print("   Falling back to manual video loading...")
+                    import traceback
+                    traceback.print_exc()
+                    vhs_loadvideo_1 = None
+            else:
+                print("   ⚠️  VHS not available - will use fallback video loading methods")
                 vhs_loadvideo_1 = None
-        elif not video_file_exists:
-            print("\n⏭️  Skipping video loading (video file not found)")
-            print(f"   📁 Video file: {video_file} - NOT FOUND")
+            
+            # Fallback: Manual video loading if VHS fails or not available
+            if vhs_loadvideo_1 is None:
+                print("   🔧 Attempting manual video loading...")
+                
+                if TORCHVISION_AVAILABLE:
+                    print("   🔧 Using torchvision for video loading...")
+                    try:
+                        # Load video using torchvision
+                        video_tensor, audio, info = tvio.read_video(
+                            video_file,
+                            start_pts=0,
+                            end_pts=None,
+                            pts_unit='pts'
+                        )
+                        
+                        # Convert to expected format: (frames, height, width, channels)
+                        if len(video_tensor.shape) == 4:  # (frames, height, width, channels)
+                            vhs_loadvideo_1 = [video_tensor, info['video_fps']]
+                            print(f"✅ Video loaded with torchvision: {video_tensor.shape} frames at {info['video_fps']:.2f} fps")
+                        else:
+                            raise ValueError(f"Unexpected video tensor shape: {video_tensor.shape}")
+                            
+                    except Exception as tv_error:
+                        print(f"   ❌ torchvision video loading failed: {tv_error}")
+                        vhs_loadvideo_1 = None
+                
+                if vhs_loadvideo_1 is None and PIL_AVAILABLE:
+                    print("   🔧 Trying PIL fallback for video loading...")
+                    try:
+                        # Load first frame as reference (simple fallback)
+                        with Image.open(video_file) as img:
+                            # Convert to tensor format
+                            img_array = np.array(img)
+                            if len(img_array.shape) == 3:  # (height, width, channels)
+                                # Create a single frame video
+                                video_tensor = torch.from_numpy(img_array).float() / 255.0
+                                video_tensor = video_tensor.unsqueeze(0)  # Add frame dimension
+                                vhs_loadvideo_1 = [video_tensor, 30.0]  # Assume 30 fps
+                                print(f"✅ Video loaded with PIL fallback: {video_tensor.shape} (single frame)")
+                            else:
+                                raise ValueError(f"Unexpected image shape: {img_array.shape}")
+                                
+                    except Exception as pil_error:
+                        print(f"   ❌ PIL fallback failed: {pil_error}")
+                        vhs_loadvideo_1 = None
+                
+                if vhs_loadvideo_1 is None:
+                    print("   ⚠️  All video loading methods failed, will create dummy data in Step 5")
+        else:
+            print(f"\n⏭️  Video file not found: {video_file}")
             print(f"   💡 Make sure '{video_file}' exists in the current directory")
             print(f"   💡 Current directory: {os.getcwd()}")
             print(f"   💡 Absolute path: {os.path.abspath(video_file)}")
-            vhs_loadvideo_1 = None
-        else:
-            print("\n⏭️  Skipping video loading (VHS not available)")
-            print("   VHS_AVAILABLE:", VHS_AVAILABLE)
-            print("   VHS_LoadVideoPath:", "Available" if VHS_LoadVideoPath is not None else "None")
             vhs_loadvideo_1 = None
         
         # Load reference image
@@ -3348,7 +3484,7 @@ def main():
             # Create a simple analysis result for monitoring
             latent_generation_analysis = {
                 'encoding_success': True,  # Inputs are ready
-                'elapsed_time': elapsed_time,
+                'elapsed_time': elapsed_time if elapsed_time is not None else 0.0,
                 'strategy_used': 'Input Preparation Only',
                 'latent_analysis': {
                     'status': 'success',
@@ -3362,15 +3498,15 @@ def main():
                 'performance_analysis': {
                     'total_pixels': actual_length * actual_height * actual_width,
                     'total_mb': (actual_length * actual_height * actual_width * actual_channels * 4) / (1024**2),
-                    'elapsed_time': elapsed_time,
+                    'elapsed_time': elapsed_time if elapsed_time is not None else 0.0,
                     'strategy_used': 'Input Preparation Only'
                 },
                 'memory_impact': {
                     'ram': {'used_change_mb': 0, 'available_change_mb': 0},
-                    'gpu': immediate_gpu_changes
+                    'gpu': immediate_gpu_changes if immediate_gpu_changes is not None else {'allocated_change_mb': 0, 'reserved_change_mb': 0}
                 },
-                'immediate_gpu_changes': immediate_gpu_changes,
-                'peak_memory': peak_memory_summary
+                'immediate_gpu_changes': immediate_gpu_changes if immediate_gpu_changes is not None else {'allocated_change_mb': 0, 'reserved_change_mb': 0},
+                'peak_memory': peak_memory_summary if peak_memory_summary is not None else {}
             }
             
             # Print comprehensive analysis
