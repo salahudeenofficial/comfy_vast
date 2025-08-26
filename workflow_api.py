@@ -2266,6 +2266,7 @@ def find_safu_files():
     """Find safu.jpg and safu.mp4 files in various possible locations"""
     possible_locations = [
         ".",  # Current directory
+        "./input",  # Input directory
         "..",  # Parent directory
         "../..",  # Grandparent directory
         os.path.dirname(os.path.abspath(__file__)),  # Script directory
@@ -2588,13 +2589,26 @@ def main():
         print(f"   Video file exists: {'✅ YES' if video_file_exists else '❌ NO'}")
         print(f"   Image file exists: {'✅ YES' if image_file_exists else '❌ NO'}")
         
-        # List files in current directory for debugging
+        # List files in current directory and input directory for debugging
         try:
             current_files = os.listdir('.')
             video_files = [f for f in current_files if f.endswith('.mp4')]
             image_files = [f for f in current_files if f.endswith(('.jpg', '.jpeg', '.png'))]
             print(f"   Available video files: {video_files if video_files else 'None'}")
             print(f"   Available image files: {image_files if image_files else 'None'}")
+            
+            # Also check input directory
+            if os.path.exists('./input'):
+                try:
+                    input_files = os.listdir('./input')
+                    input_video_files = [f for f in input_files if f.endswith('.mp4')]
+                    input_image_files = [f for f in input_files if f.endswith(('.jpg', '.jpeg', '.png'))]
+                    print(f"   Input directory video files: {input_video_files if input_video_files else 'None'}")
+                    print(f"   Input directory image files: {input_image_files if input_image_files else 'None'}")
+                except Exception as e:
+                    print(f"   Could not list input directory contents: {e}")
+            else:
+                print(f"   Input directory './input' does not exist")
         except Exception as e:
             print(f"   Could not list directory contents: {e}")
         
