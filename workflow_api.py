@@ -2097,7 +2097,11 @@ class ModelLoadingMonitor:
         
         # Basic success info
         print(f"✅ VAE Encoding Success: {'YES' if analysis.get('encoding_success', False) else 'NO'}")
-        print(f"⏱️  Total Execution Time: {analysis.get('elapsed_time', 0):.3f} seconds")
+        elapsed_time = analysis.get('elapsed_time', 0)
+        if elapsed_time is not None:
+            print(f"⏱️  Total Execution Time: {elapsed_time:.3f} seconds")
+        else:
+            print(f"⏱️  Total Execution Time: N/A")
         print(f"🎯 Strategy Used: {analysis.get('strategy_used', 'Unknown')}")
         
         # Latent Output Analysis
@@ -2111,15 +2115,23 @@ class ModelLoadingMonitor:
             print(f"   📐 Shape: {latent_analysis.get('shape', 'N/A')}")
             print(f"   🏷️  Data Type: {latent_analysis.get('dtype', 'N/A')}")
             print(f"   📱 Device: {latent_analysis.get('device', 'N/A')}")
-            print(f"   💾 Size: {latent_analysis.get('size_mb', 0):.2f} MB")
-            print(f"   🔢 Elements: {latent_analysis.get('num_elements', 0):,}")
+            size_mb = latent_analysis.get('size_mb', 0)
+            if size_mb is not None:
+                print(f"   💾 Size: {size_mb:.2f} MB")
+            else:
+                print(f"   💾 Size: N/A")
+            num_elements = latent_analysis.get('num_elements', 0)
+            if num_elements is not None:
+                print(f"   🔢 Elements: {num_elements:,}")
+            else:
+                print(f"   🔢 Elements: N/A")
             
             # Show compression ratios
             spatial_comp = latent_analysis.get('spatial_compression')
             temporal_comp = latent_analysis.get('temporal_compression')
-            if spatial_comp != "N/A":
+            if spatial_comp != "N/A" and spatial_comp is not None:
                 print(f"   📏 Spatial Compression: {spatial_comp:.1f}x")
-            if temporal_comp != "N/A":
+            if temporal_comp != "N/A" and temporal_comp is not None:
                 print(f"   ⏱️  Temporal Compression: {temporal_comp:.1f}x")
         else:
             print(f"   ❌ Status: FAILED")
@@ -2131,16 +2143,30 @@ class ModelLoadingMonitor:
         if performance_analysis is None:
             print("   ❌ ERROR: Performance analysis not available")
         elif 'error' not in performance_analysis:
-            print(f"   📊 Video Dimensions: {performance_analysis.get('video_dimensions', {}).get('length', 0)} frames, {performance_analysis.get('video_dimensions', {}).get('height', 0)}x{performance_analysis.get('video_dimensions', {}).get('width', 0)}")
-            print(f"   📊 Total Pixels: {performance_analysis.get('total_pixels', 0):,}")
-            print(f"   📊 Total Data: {performance_analysis.get('total_mb', 0):.2f} MB")
+            video_dims = performance_analysis.get('video_dimensions', {})
+            length = video_dims.get('length', 0)
+            height = video_dims.get('height', 0)
+            width = video_dims.get('width', 0)
+            print(f"   📊 Video Dimensions: {length} frames, {height}x{width}")
+            
+            total_pixels = performance_analysis.get('total_pixels', 0)
+            if total_pixels is not None:
+                print(f"   📊 Total Pixels: {total_pixels:,}")
+            else:
+                print(f"   📊 Total Pixels: N/A")
+                
+            total_mb = performance_analysis.get('total_mb', 0)
+            if total_mb is not None:
+                print(f"   📊 Total Data: {total_mb:.2f} MB")
+            else:
+                print(f"   📊 Total Data: N/A")
             
             # Performance metrics
             fps = performance_analysis.get('frames_per_second')
             mbps = performance_analysis.get('mb_per_second')
-            if fps != "N/A":
+            if fps != "N/A" and fps is not None:
                 print(f"   ⚡ Processing Speed: {fps:.1f} frames/second")
-            if mbps != "N/A":
+            if mbps != "N/A" and mbps is not None:
                 print(f"   ⚡ Data Throughput: {mbps:.1f} MB/second")
         else:
             print(f"   ❌ Performance analysis failed: {performance_analysis.get('error', 'Unknown error')}")
@@ -2151,8 +2177,16 @@ class ModelLoadingMonitor:
         if immediate_gpu_changes is None:
             print("   ❌ ERROR: Immediate GPU changes not available")
         else:
-            print(f"   Allocated Change: {immediate_gpu_changes.get('allocated_change_mb', 0):+.1f} MB")
-            print(f"   Reserved Change: {immediate_gpu_changes.get('reserved_change_mb', 0):+.1f} MB")
+            allocated_change = immediate_gpu_changes.get('allocated_change_mb', 0)
+            reserved_change = immediate_gpu_changes.get('reserved_change_mb', 0)
+            if allocated_change is not None:
+                print(f"   Allocated Change: {allocated_change:+.1f} MB")
+            else:
+                print(f"   Allocated Change: N/A")
+            if reserved_change is not None:
+                print(f"   Reserved Change: {reserved_change:+.1f} MB")
+            else:
+                print(f"   Reserved Change: N/A")
         
         # Memory Impact
         print(f"\n💾 MEMORY IMPACT:")
@@ -2164,20 +2198,73 @@ class ModelLoadingMonitor:
             # RAM Changes
             if 'ram' in memory_impact:
                 ram = memory_impact['ram']
+                used_change = ram.get('used_change_mb', 0)
+                baseline_used = ram.get('baseline_used_mb', 0)
+                current_used = ram.get('current_used_mb', 0)
+                available_change = ram.get('available_change_mb', 0)
+                baseline_available = ram.get('baseline_available_mb', 0)
+                current_available = ram.get('current_available_mb', 0)
+                baseline_percent = ram.get('baseline_percent_used', 0)
+                current_percent = ram.get('current_percent_used', 0)
+                
                 print(f"\n   🖥️  RAM CHANGES:")
-                print(f"      Used: {ram.get('used_change_mb', 0):+.1f} MB ({ram.get('baseline_used_mb', 0):.1f} → {ram.get('current_used_mb', 0):.1f} MB)")
-                print(f"      Available: {ram.get('available_change_mb', 0):+.1f} MB ({ram.get('baseline_available_mb', 0):.1f} → {ram.get('current_available_mb', 0):.1f} MB)")
-                print(f"      Usage: {ram.get('baseline_percent_used', 0):.1f}% → {ram.get('current_percent_used', 0):.1f}%")
+                if used_change is not None and baseline_used is not None and current_used is not None:
+                    print(f"      Used: {used_change:+.1f} MB ({baseline_used:.1f} → {current_used:.1f} MB)")
+                else:
+                    print(f"      Used: N/A")
+                if available_change is not None and baseline_available is not None and current_available is not None:
+                    print(f"      Available: {available_change:+.1f} MB ({baseline_available:.1f} → {current_available:.1f} MB)")
+                else:
+                    print(f"      Available: N/A")
+                if baseline_percent is not None and current_percent is not None:
+                    print(f"      Usage: {baseline_percent:.1f}% → {current_percent:.1f}%")
+                else:
+                    print(f"      Usage: N/A")
             
             # GPU Changes
             if 'gpu' in memory_impact and memory_impact['gpu']:
                 gpu = memory_impact['gpu']
+                allocated_change = gpu.get('allocated_change_mb', 0)
+                reserved_change = gpu.get('reserved_change_mb', 0)
+                current_total = gpu.get('current_total_mb', 0)
+                allocated_pct = gpu.get('allocated_change_pct', 0)
+                reserved_pct = gpu.get('reserved_change_pct', 0)
+                
                 print(f"\n   🎮 GPU CHANGES:")
-                print(f"      Allocated: {gpu.get('allocated_change_mb', 0):+.1f} MB ({gpu.get('baseline_allocated_mb', 0):.1f} → {gpu.get('current_allocated_mb', 0):.1f} MB)")
-                print(f"      Reserved: {gpu.get('reserved_change_mb', 0):+.1f} MB ({gpu.get('baseline_reserved_mb', 0):.1f} → {gpu.get('current_reserved_mb', 0):.1f} MB)")
-                print(f"      Total VRAM: {gpu.get('current_total_mb', 0):.1f} MB")
-                print(f"      Allocated Change: {gpu.get('allocated_change_pct', 0):+.1f}%")
-                print(f"      Reserved Change: {gpu.get('reserved_change_pct', 0):+.1f}%")
+                if allocated_change is not None:
+                    baseline_allocated = gpu.get('baseline_allocated_mb', 0)
+                    current_allocated = gpu.get('current_allocated_mb', 0)
+                    if baseline_allocated is not None and current_allocated is not None:
+                        print(f"      Allocated: {allocated_change:+.1f} MB ({baseline_allocated:.1f} → {current_allocated:.1f} MB)")
+                    else:
+                        print(f"      Allocated: {allocated_change:+.1f} MB")
+                else:
+                    print(f"      Allocated: N/A")
+                    
+                if reserved_change is not None:
+                    baseline_reserved = gpu.get('baseline_reserved_mb', 0)
+                    current_reserved = gpu.get('current_reserved_mb', 0)
+                    if baseline_reserved is not None and current_reserved is not None:
+                        print(f"      Reserved: {reserved_change:+.1f} MB ({baseline_reserved:.1f} → {current_reserved:.1f} MB)")
+                    else:
+                        print(f"      Reserved: {reserved_change:+.1f} MB")
+                else:
+                    print(f"      Reserved: N/A")
+                    
+                if current_total is not None:
+                    print(f"      Total VRAM: {current_total:.1f} MB")
+                else:
+                    print(f"      Total VRAM: N/A")
+                    
+                if allocated_pct is not None:
+                    print(f"      Allocated Change: {allocated_pct:+.1f}%")
+                else:
+                    print(f"      Allocated Change: N/A")
+                    
+                if reserved_pct is not None:
+                    print(f"      Reserved Change: {reserved_pct:+.1f}%")
+                else:
+                    print(f"      Reserved Change: N/A")
         else:
             print(f"   ❌ Memory calculation failed: {memory_impact.get('error', 'Unknown error')}")
         
@@ -2188,16 +2275,37 @@ class ModelLoadingMonitor:
             print("   ❌ ERROR: Peak memory information not available")
         else:
             print(f"\n📊 PEAK MEMORY DURING LATENT GENERATION:")
-            print(f"   🖥️  RAM Peak: {peak_memory.get('ram_peak_mb', 0):.1f} MB")
-            print(f"   🎮 GPU Allocated Peak: {peak_memory.get('gpu_allocated_peak_mb', 0):.1f} MB")
-            print(f"   🎮 GPU Reserved Peak: {peak_memory.get('gpu_reserved_peak_mb', 0):.1f} MB")
+            ram_peak = peak_memory.get('ram_peak_mb', 0)
+            gpu_allocated_peak = peak_memory.get('gpu_allocated_peak_mb', 0)
+            gpu_reserved_peak = peak_memory.get('gpu_reserved_peak_mb', 0)
+            
+            if ram_peak is not None:
+                print(f"   🖥️  RAM Peak: {ram_peak:.1f} MB")
+            else:
+                print(f"   🖥️  RAM Peak: N/A")
+                
+            if gpu_allocated_peak is not None:
+                print(f"   🎮 GPU Allocated Peak: {gpu_allocated_peak:.1f} MB")
+            else:
+                print(f"   🎮 GPU Allocated Peak: N/A")
+                
+            if gpu_reserved_peak is not None:
+                print(f"   🎮 GPU Reserved Peak: {gpu_reserved_peak:.1f} MB")
+            else:
+                print(f"   🎮 GPU Reserved Peak: N/A")
             
             # Show peak timestamps if available
             peak_timestamps = peak_memory.get('peak_timestamps')
             if peak_timestamps:
                 print(f"   ⏱️  Peak Timestamps:")
                 for peak in peak_memory['peak_timestamps'][:5]:  # Show first 5 peaks
-                    print(f"      {peak.get('type', 'unknown')}: {peak.get('value_mb', 0):.1f} MB at {peak.get('timestamp', 0):.2f}s")
+                    peak_type = peak.get('type', 'unknown')
+                    peak_value = peak.get('value_mb', 0)
+                    peak_time = peak.get('timestamp', 0)
+                    if peak_value is not None and peak_time is not None:
+                        print(f"      {peak_type}: {peak_value:.1f} MB at {peak_time:.2f}s")
+                    else:
+                        print(f"      {peak_type}: N/A")
         
         print("=" * 80)
 
