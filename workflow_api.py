@@ -113,6 +113,65 @@ def attempt_vhs_import():
                         except Exception as e:
                             print(f"         ⚠️  Direct import from videohelpersuite subdirectory error: {e}")
                     
+                    # Try importing from the main package level (this should work with relative imports)
+                    try:
+                        print(f"      🔍 Trying package-level import from {vhs_path}...")
+                        # Add the main VHS directory to the path
+                        if vhs_path not in sys.path:
+                            sys.path.insert(0, vhs_path)
+                        
+                        # Import from the main package level
+                        from comfyui_videohelpersuite.videohelpersuite.load_video_nodes import LoadVideoUpload, LoadVideoPath
+                        VHS_LoadVideoUpload = LoadVideoUpload
+                        VHS_LoadVideoPath = LoadVideoPath
+                        VHS_AVAILABLE = True
+                        print(f"✅ Successfully imported VHS classes using package-level import from: {vhs_path}")
+                        print(f"   LoadVideoUpload: {VHS_LoadVideoUpload}")
+                        print(f"   LoadVideoPath: {VHS_LoadVideoPath}")
+                        return True
+                    except ImportError as e:
+                        print(f"         ⚠️  Package-level import failed: {e}")
+                    except Exception as e:
+                        print(f"         ⚠️  Package-level import error: {e}")
+                    
+                    # Try importing as a module from the current working directory
+                    try:
+                        print(f"      🔍 Trying module import from current working directory...")
+                        # Change to the VHS directory temporarily
+                        original_cwd = os.getcwd()
+                        os.chdir(vhs_path)
+                        
+                        # Try to import the module
+                        import sys
+                        sys.path.insert(0, vhs_path)
+                        
+                        # Import using the module name
+                        import videohelpersuite.load_video_nodes
+                        LoadVideoUpload = videohelpersuite.load_video_nodes.LoadVideoUpload
+                        LoadVideoPath = videohelpersuite.load_video_nodes.LoadVideoPath
+                        
+                        VHS_LoadVideoUpload = LoadVideoUpload
+                        VHS_LoadVideoPath = LoadVideoPath
+                        VHS_AVAILABLE = True
+                        
+                        # Change back to original directory
+                        os.chdir(original_cwd)
+                        
+                        print(f"✅ Successfully imported VHS classes using module import from: {vhs_path}")
+                        print(f"   LoadVideoUpload: {VHS_LoadVideoUpload}")
+                        print(f"   LoadVideoPath: {VHS_LoadVideoPath}")
+                        return True
+                    except ImportError as e:
+                        print(f"         ⚠️  Module import failed: {e}")
+                        # Change back to original directory if there was an error
+                        if 'original_cwd' in locals():
+                            os.chdir(original_cwd)
+                    except Exception as e:
+                        print(f"         ⚠️  Module import error: {e}")
+                        # Change back to original directory if there was an error
+                        if 'original_cwd' in locals():
+                            os.chdir(original_cwd)
+                    
                     for import_statement, strategy_name in import_strategies:
                         try:
                             print(f"      🔍 Trying strategy: {strategy_name}")
