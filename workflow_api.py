@@ -2262,6 +2262,40 @@ class ModelLoadingMonitor:
 model_monitor = ModelLoadingMonitor()
 
 
+def find_safu_files():
+    """Find safu.jpg and safu.mp4 files in various possible locations"""
+    possible_locations = [
+        ".",  # Current directory
+        "..",  # Parent directory
+        "../..",  # Grandparent directory
+        os.path.dirname(os.path.abspath(__file__)),  # Script directory
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."),  # Script parent
+    ]
+    
+    safu_files = {}
+    
+    for location in possible_locations:
+        try:
+            if os.path.exists(location):
+                safu_mp4 = os.path.join(location, "safu.mp4")
+                safu_jpg = os.path.join(location, "safu.jpg")
+                
+                if os.path.exists(safu_mp4) and "mp4" not in safu_files:
+                    safu_files["mp4"] = safu_mp4
+                    print(f"   ✅ Found safu.mp4 at: {safu_mp4}")
+                
+                if os.path.exists(safu_jpg) and "jpg" not in safu_files:
+                    safu_files["jpg"] = safu_jpg
+                    print(f"   ✅ Found safu.jpg at: {safu_jpg}")
+                
+                if len(safu_files) == 2:
+                    break
+        except Exception as e:
+            continue
+    
+    return safu_files
+
+
 def get_value_at_index(obj: Union[Sequence, Mapping], index: int) -> Any:
     """Returns the value at the given index of a sequence or mapping.
 
@@ -2523,11 +2557,49 @@ def main():
         print("1. Loading diffusion model components...")
         
         # Load video and reference image using direct imports
-        video_file = "safu.mp4"
+        print("\n🔍 SEARCHING FOR SAFU FILES...")
+        safu_files = find_safu_files()
+        
+        # Use found files or fall back to current directory
+        if "mp4" in safu_files:
+            video_file = safu_files["mp4"]
+            print(f"   🎥 Using video file: {video_file}")
+        else:
+            video_file = "safu.mp4"
+            print(f"   ⚠️  Video file not found, will look for: {video_file}")
+        
+        if "jpg" in safu_files:
+            image_file = safu_files["jpg"]
+            print(f"   🖼️  Using image file: {image_file}")
+        else:
+            image_file = "safu.jpg"
+            print(f"   ⚠️  Image file not found, will look for: {image_file}")
+        
+        # Debug: Show current working directory and file search paths
+        print(f"\n🔍 FILE SEARCH DEBUG:")
+        print(f"   Current working directory: {os.getcwd()}")
+        print(f"   Looking for video: {os.path.abspath(video_file)}")
+        print(f"   Looking for image: {os.path.abspath(image_file)}")
+        
+        # Check if files exist with better debugging
         video_file_exists = os.path.exists(video_file)
+        image_file_exists = os.path.exists(image_file)
+        
+        print(f"   Video file exists: {'✅ YES' if video_file_exists else '❌ NO'}")
+        print(f"   Image file exists: {'✅ YES' if image_file_exists else '❌ NO'}")
+        
+        # List files in current directory for debugging
+        try:
+            current_files = os.listdir('.')
+            video_files = [f for f in current_files if f.endswith('.mp4')]
+            image_files = [f for f in current_files if f.endswith(('.jpg', '.jpeg', '.png'))]
+            print(f"   Available video files: {video_files if video_files else 'None'}")
+            print(f"   Available image files: {image_files if image_files else 'None'}")
+        except Exception as e:
+            print(f"   Could not list directory contents: {e}")
         
         if VHS_AVAILABLE and VHS_LoadVideoPath is not None and video_file_exists:
-            print("🎥 Loading video using direct VHS imports...")
+            print("\n🎥 Loading video using direct VHS imports...")
             print(f"   📁 Video file: {video_file} - EXISTS ({os.path.getsize(video_file) / (1024**2):.2f} MB)")
             try:
                 # Use LoadVideoPath for direct file loading
@@ -2547,41 +2619,42 @@ def main():
                 print("   This may be due to VHS compatibility issues or corrupted video file")
                 vhs_loadvideo_1 = None
         elif not video_file_exists:
-            print("⏭️  Skipping video loading (video file not found)")
+            print("\n⏭️  Skipping video loading (video file not found)")
             print(f"   📁 Video file: {video_file} - NOT FOUND")
             print(f"   💡 Make sure '{video_file}' exists in the current directory")
+            print(f"   💡 Current directory: {os.getcwd()}")
+            print(f"   💡 Absolute path: {os.path.abspath(video_file)}")
             vhs_loadvideo_1 = None
         else:
-            print("⏭️  Skipping video loading (VHS not available)")
+            print("\n⏭️  Skipping video loading (VHS not available)")
             print("   VHS_AVAILABLE:", VHS_AVAILABLE)
             print("   VHS_LoadVideoPath:", "Available" if VHS_LoadVideoPath is not None else "None")
             vhs_loadvideo_1 = None
         
         # Load reference image
-        image_file = "safu.jpg"
-        image_file_exists = os.path.exists(image_file)
-        
         if image_file_exists:
-            print(f"📷 Loading reference image: {image_file} - EXISTS ({os.path.getsize(image_file) / (1024**2):.2f} MB)")
+            print(f"\n📷 Loading reference image: {image_file} - EXISTS ({os.path.getsize(image_file) / (1024**2):.2f} MB)")
             try:
                 loadimage = LoadImage()
                 loadimage_4 = loadimage.load_image(image=image_file)
                 print("✅ Reference image loaded successfully")
                 
                 # Debug: Show what was loaded
-                # if loadimage_4:
-                #     print(f"   Image type: {type(loadimage_4)}")
-                #     if isinstance(loadimage_4, (list, tuple)) and len(loadimage_4) > 0:
-                #         print(f"   Image data type: {type(loadimage_4[0])}")
-                #         if hasattr(loadimage_4[0], 'shape'):
-                #         print(f"   Image shape: {loadimage_4[0].shape}")
+                if loadimage_4:
+                    print(f"   Image type: {type(loadimage_4)}")
+                    if isinstance(loadimage_4, (list, tuple)) and len(loadimage_4) > 0:
+                        print(f"   Image data type: {type(loadimage_4[0])}")
+                        if hasattr(loadimage_4[0], 'shape'):
+                            print(f"   Image shape: {loadimage_4[0].shape}")
             except Exception as e:
                 print(f"❌ Error loading reference image: {e}")
                 loadimage_4 = None
         else:
-            print(f"⏭️  Skipping reference image loading (image file not found)")
+            print(f"\n⏭️  Skipping reference image loading (image file not found)")
             print(f"   📁 Image file: {image_file} - NOT FOUND")
             print(f"   💡 Make sure '{image_file}' exists in the current directory")
+            print(f"   💡 Current directory: {os.getcwd()}")
+            print(f"   💡 Absolute path: {os.path.abspath(image_file)}")
             loadimage_4 = None
         
         # Debug: Show video loading results
@@ -3068,29 +3141,110 @@ def main():
             print("🔍 Cannot proceed with latent generation - check previous steps")
             return
         
-        # Create dummy video data for testing (since we don't have actual video files)
-        print("\n🎬 CREATING DUMMY VIDEO DATA FOR TESTING...")
+        # Create video data for latent generation (use actual files if available, otherwise dummy data)
+        print("\n🎬 PREPARING VIDEO DATA FOR LATENT GENERATION...")
         try:
-            # Create dummy video data with realistic dimensions
-            dummy_length = 16  # 16 frames
-            dummy_height = 512  # 512 pixels
-            dummy_width = 512   # 512 pixels
-            dummy_channels = 3  # RGB
-            
-            print(f"   📐 Dummy Video Dimensions: {dummy_length} frames, {dummy_height}x{dummy_width}, {dummy_channels} channels")
-            
-            # Create dummy control video tensor
-            dummy_control_video = torch.randn((dummy_length, dummy_height, dummy_width, dummy_channels), device='cuda') * 0.5 + 0.5
-            print(f"   🎥 Dummy control video created: {dummy_control_video.shape}")
-            
-            # Create dummy reference image tensor
-            dummy_reference_image = torch.randn((1, dummy_height, dummy_width, dummy_channels), device='cuda') * 0.5 + 0.5
-            print(f"   🖼️  Dummy reference image created: {dummy_reference_image.shape}")
-            
-            print("   ✅ Dummy video data created successfully")
+            # Check if we have actual video data from Step 1
+            if 'vhs_loadvideo_1' in locals() and vhs_loadvideo_1 is not None:
+                print("   🎥 Using actual video data from Step 1...")
+                actual_video_data = vhs_loadvideo_1
+                
+                # Extract video dimensions from actual data
+                if isinstance(actual_video_data, (list, tuple)) and len(actual_video_data) > 0:
+                    video_tensor = actual_video_data[0]
+                    if hasattr(video_tensor, 'shape'):
+                        video_shape = video_tensor.shape
+                        print(f"   📐 Actual Video Shape: {video_shape}")
+                        
+                        # Determine dimensions based on actual video
+                        if len(video_shape) == 4:  # (frames, height, width, channels)
+                            actual_length = video_shape[0]
+                            actual_height = video_shape[1]
+                            actual_width = video_shape[2]
+                            actual_channels = video_shape[3]
+                        elif len(video_shape) == 3:  # (height, width, channels) - single frame
+                            actual_length = 1
+                            actual_height = video_shape[0]
+                            actual_width = video_shape[1]
+                            actual_channels = video_shape[2]
+                        else:
+                            raise ValueError(f"Unexpected video shape: {video_shape}")
+                        
+                        print(f"   📐 Actual Video Dimensions: {actual_length} frames, {actual_height}x{actual_width}, {actual_channels} channels")
+                        
+                        # Use actual video data
+                        control_video = video_tensor
+                        reference_image = video_tensor[0] if actual_length > 0 else video_tensor
+                        
+                        print("   ✅ Using actual video data for VAE encoding")
+                        use_actual_data = True
+                    else:
+                        raise ValueError("Video tensor has no shape attribute")
+                else:
+                    raise ValueError("Video data structure is invalid")
+                    
+            # Check if we have actual image data from Step 1
+            elif 'loadimage_4' in locals() and loadimage_4 is not None:
+                print("   🖼️  Using actual image data from Step 1...")
+                actual_image_data = loadimage_4
+                
+                # Extract image dimensions from actual data
+                if isinstance(actual_image_data, (list, tuple)) and len(actual_image_data) > 0:
+                    image_tensor = actual_image_data[0]
+                    if hasattr(image_tensor, 'shape'):
+                        image_shape = image_tensor.shape
+                        print(f"   📐 Actual Image Shape: {image_shape}")
+                        
+                        # Determine dimensions based on actual image
+                        if len(image_shape) == 3:  # (height, width, channels)
+                            actual_length = 1  # Single frame
+                            actual_height = image_shape[0]
+                            actual_width = image_shape[1]
+                            actual_channels = image_shape[2]
+                        elif len(image_shape) == 4:  # (batch, height, width, channels)
+                            actual_length = 1  # Single frame
+                            actual_height = image_shape[1]
+                            actual_width = image_shape[2]
+                            actual_channels = image_shape[3]
+                        else:
+                            raise ValueError(f"Unexpected image shape: {image_shape}")
+                        
+                        print(f"   📐 Actual Image Dimensions: {actual_length} frame, {actual_height}x{actual_width}, {actual_channels} channels")
+                        
+                        # Create video tensor from image (repeat for multiple frames)
+                        control_video = image_tensor.unsqueeze(0).repeat(16, 1, 1, 1) if len(image_tensor.shape) == 3 else image_tensor.repeat(16, 1, 1, 1)
+                        reference_image = image_tensor
+                        
+                        print("   ✅ Using actual image data for VAE encoding")
+                        use_actual_data = True
+                    else:
+                        raise ValueError("Image tensor has no shape attribute")
+                else:
+                    raise ValueError("Image data structure is invalid")
+                    
+            else:
+                print("   ⚠️  No actual video/image data available, creating dummy data...")
+                # Create dummy video data with realistic dimensions
+                actual_length = 16  # 16 frames
+                actual_height = 512  # 512 pixels
+                actual_width = 512   # 512 pixels
+                actual_channels = 3  # RGB
+                
+                print(f"   📐 Dummy Video Dimensions: {actual_length} frames, {actual_height}x{actual_width}, {actual_channels} channels")
+                
+                # Create dummy control video tensor
+                control_video = torch.randn((actual_length, actual_height, actual_width, actual_channels), device='cuda') * 0.5 + 0.5
+                print(f"   🎥 Dummy control video created: {control_video.shape}")
+                
+                # Create dummy reference image tensor
+                reference_image = torch.randn((1, actual_height, actual_width, actual_channels), device='cuda') * 0.5 + 0.5
+                print(f"   🖼️  Dummy reference image created: {reference_image.shape}")
+                
+                print("   ✅ Dummy video data created successfully")
+                use_actual_data = False
             
         except Exception as e:
-            print(f"❌ ERROR creating dummy video data: {e}")
+            print(f"❌ ERROR preparing video data: {e}")
             print("🔍 Cannot proceed with latent generation")
             return
         
@@ -3125,7 +3279,7 @@ def main():
                     
                     # Prepare input tensor (VAE expects batch, channels, height, width)
                     # Convert from (frames, height, width, channels) to (batch, channels, height, width)
-                    input_tensor = dummy_control_video.permute(0, 3, 1, 2).unsqueeze(0)  # Add batch dimension
+                    input_tensor = control_video.permute(0, 3, 1, 2).unsqueeze(0)  # Add batch dimension
                     print(f"   🔍 Input tensor shape: {input_tensor.shape}")
                     
                     # Encode to latent space
@@ -3172,8 +3326,8 @@ def main():
                         print("   🔍 Moving data to CPU for processing...")
                         
                         # Move tensors to CPU
-                        dummy_control_video_cpu = dummy_control_video.cpu()
-                        dummy_reference_image_cpu = dummy_reference_image.cpu()
+                        control_video_cpu = control_video.cpu()
+                        reference_image_cpu = reference_image.cpu()
                         
                         # Create minimal tensors for CPU processing
                         minimal_length = 8
@@ -3205,13 +3359,13 @@ def main():
                         temporal_downscale = 4   # Typical temporal compression
                         spatial_downscale = 8    # Typical spatial compression
                         
-                        latent_frames = max(1, dummy_length // temporal_downscale)
-                        latent_height = max(1, dummy_height // spatial_downscale)
-                        latent_width = max(1, dummy_width // spatial_downscale)
+                        latent_frames = max(1, actual_length // temporal_downscale)
+                        latent_height = max(1, actual_height // spatial_downscale)
+                        latent_width = max(1, actual_width // spatial_downscale)
                         
                         print(f"   🔍 Calculated latent dimensions:")
-                        print(f"   🔍   Original: {dummy_length} frames, {dummy_height}x{dummy_width}")
-                        print(f"   🔍   Latent: {latent_frames} frames, {latent_height}x{latent_width}")
+                        print(f"   🔍   Original: {actual_length} frames, {actual_height}x{actual_width}")
+                        print(f"      Latent: {latent_frames} frames, {latent_height}x{latent_width}")
                         
                         # Create dummy latents with correct dimensions
                         dummy_latent_shape = (1, latent_frames, 4, latent_height, latent_width)
@@ -3223,6 +3377,21 @@ def main():
             
             # Update peak memory after encoding
             model_monitor.update_peak_memory()
+            
+            # Show summary of what data was used
+            print(f"\n📊 VAE ENCODING DATA SUMMARY:")
+            if 'use_actual_data' in locals() and use_actual_data:
+                print(f"   🎯 Data Source: ACTUAL {'VIDEO' if 'vhs_loadvideo_1' in locals() and vhs_loadvideo_1 is not None else 'IMAGE'} data from Step 1")
+                print(f"   📐 Input Dimensions: {actual_length} frames, {actual_height}x{actual_width}, {actual_channels} channels")
+                print(f"   💾 Input Size: {(actual_length * actual_height * actual_width * actual_channels * 4) / (1024**2):.2f} MB")
+            else:
+                print(f"   🎯 Data Source: DUMMY data (no actual files found)")
+                print(f"   📐 Input Dimensions: {actual_length} frames, {actual_height}x{actual_width}, {actual_channels} channels")
+                print(f"   💾 Input Size: {(actual_length * actual_height * actual_width * actual_channels * 4) / (1024**2):.2f} MB")
+            
+            print(f"   🔧 Encoding Strategy: {strategy_used}")
+            print(f"   📐 Output Latent Shape: {init_latent.shape}")
+            print(f"   💾 Output Size: {init_latent.numel() * init_latent.element_size() / (1024**2):.2f} MB")
             
             # Check immediate GPU impact
             gpu_after_encoding = {
@@ -3253,9 +3422,9 @@ def main():
                     elapsed_time,
                     strategy_used,
                     immediate_gpu_changes,
-                    dummy_length,
-                    dummy_height,
-                    dummy_width
+                    actual_length,
+                    actual_height,
+                    actual_width
                 )
                 
                 # Print comprehensive analysis
