@@ -2948,11 +2948,11 @@ def main():
         # === STEP 4 END: MODEL SAMPLING ===
 
         # === STEP 5 START: INITIAL LATENT GENERATION ===
-        print("5. Executing WanVaceToVideo node...")
+        print("5. Executing WanVaceToVideo node with continuous monitoring...")
         
         # Execute WanVaceToVideo node directly with inputs from previous steps
         try:
-            print("\n🔧 EXECUTING WANVACETOVIDEO NODE...")
+            print("\n🔧 EXECUTING WANVACETOVIDEO NODE WITH CONTINUOUS MONITORING...")
             
             # Check if we have all required inputs
             required_inputs = {
@@ -2977,18 +2977,150 @@ def main():
             
             print(f"\n   ✅ All required inputs available - proceeding with node execution")
             
-            # Execute WanVaceToVideo node
+            # === CONTINUOUS MONITORING SETUP ===
+            print(f"\n🔍 SETTING UP CONTINUOUS MONITORING FOR STEP 5...")
+            
+            # 1. CAPTURE BASELINE STATE (BEFORE NODE EXECUTION)
+            print(f"   📊 CAPTURING BASELINE STATE (BEFORE NODE EXECUTION)...")
+            
+            # RAM baseline
+            baseline_ram = psutil.virtual_memory()
+            baseline_ram_mb = baseline_ram.used / (1024**2)
+            baseline_ram_available_mb = baseline_ram.available / (1024**2)
+            baseline_ram_percent = baseline_ram.percent
+            
+            # GPU baseline
+            baseline_gpu_allocated = torch.cuda.memory_allocated() / (1024**2)
+            baseline_gpu_reserved = torch.cuda.memory_reserved() / (1024**2)
+            baseline_gpu_total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
+            
+            print(f"      🖥️  RAM Baseline: {baseline_ram_mb:.1f} MB used, {baseline_ram_available_mb:.1f} MB available ({baseline_ram_percent:.1f}%)")
+            print(f"      🎮 GPU Baseline: {baseline_gpu_allocated:.1f} MB allocated, {baseline_gpu_reserved:.1f} MB reserved, {baseline_gpu_total:.1f} MB total")
+            
+            # 2. MODEL LOCATION BASELINE (BEFORE NODE EXECUTION)
+            print(f"   📍 CAPTURING MODEL LOCATION BASELINE...")
+            
+            # Get model locations before execution
+            unet_location_before = getattr(modified_unet_sampled, 'device', 'unknown') if 'modified_unet_sampled' in locals() else 'N/A'
+            vae_location_before = getattr(vaeloader_7, 'device', 'unknown') if 'vaeloader_7' in locals() else 'N/A'
+            clip_location_before = getattr(modified_clip, 'device', 'unknown') if 'modified_clip' in locals() else 'N/A'
+            
+            # Check if models have patcher attributes
+            if hasattr(vaeloader_7, 'patcher') and hasattr(vaeloader_7.patcher, 'model'):
+                vae_patcher_location = getattr(vaeloader_7.patcher.model, 'device', 'unknown')
+                print(f"      🎨 VAE Location: {vae_location_before} (patcher model: {vae_patcher_location})")
+            else:
+                print(f"      🎨 VAE Location: {vae_location_before}")
+                
+            if hasattr(modified_unet_sampled, 'patcher') and hasattr(modified_unet_sampled.patcher, 'model'):
+                unet_patcher_location = getattr(modified_unet_sampled.patcher.model, 'device', 'unknown')
+                print(f"      🧠 UNET Location: {unet_location_before} (patcher model: {unet_patcher_location})")
+            else:
+                print(f"      🧠 UNET Location: {unet_location_before}")
+                
+            if hasattr(modified_clip, 'patcher') and hasattr(modified_clip.patcher, 'model'):
+                clip_patcher_location = getattr(modified_clip.patcher.model, 'device', 'unknown')
+                print(f"      📝 CLIP Location: {clip_location_before} (patcher model: {clip_patcher_location})")
+            else:
+                print(f"      📝 CLIP Location: {clip_location_before}")
+            
+            # 3. SETUP CONTINUOUS MONITORING
+            print(f"   ⏱️  SETTING UP CONTINUOUS MONITORING (every 0.5 seconds)...")
+            
+            # Initialize monitoring variables
+            monitoring_data = []
+            monitoring_interval = 0.5  # Monitor every 0.5 seconds
+            step5_start_time = time.time()
+            
+            # Function to capture memory snapshot
+            def capture_memory_snapshot(timestamp):
+                try:
+                    # Capture RAM
+                    ram = psutil.virtual_memory()
+                    ram_used_mb = ram.used / (1024**2)
+                    ram_available_mb = ram.available / (1024**2)
+                    ram_percent = ram.percent
+                    
+                    # Capture GPU
+                    gpu_allocated_mb = torch.cuda.memory_allocated() / (1024**2)
+                    gpu_reserved_mb = torch.cuda.memory_reserved() / (1024**2)
+                    gpu_total_mb = torch.cuda.get_device_properties(0).total_memory / (1024**2)
+                    
+                    snapshot = {
+                        'timestamp': timestamp,
+                        'elapsed_time': timestamp - step5_start_time,
+                        'ram': {
+                            'used_mb': ram_used_mb,
+                            'available_mb': ram_available_mb,
+                            'percent': ram_percent
+                        },
+                        'gpu': {
+                            'allocated_mb': gpu_allocated_mb,
+                            'reserved_mb': gpu_reserved_mb,
+                            'total_mb': gpu_total_mb
+                        }
+                    }
+                    
+                    monitoring_data.append(snapshot)
+                    return snapshot
+                except Exception as e:
+                    print(f"      ⚠️  Memory snapshot failed: {e}")
+                    return None
+            
+            # Function for continuous monitoring in background thread
+            def continuous_monitoring(monitoring_data, step5_start_time, stop_event):
+                """Background thread that captures memory every 0.5 seconds"""
+                while not stop_event.is_set():
+                    try:
+                        # Capture memory snapshot
+                        timestamp = time.time()
+                        snapshot = capture_memory_snapshot(timestamp)
+                        
+                        # Wait 0.5 seconds before next capture
+                        time.sleep(0.5)
+                    except Exception as e:
+                        print(f"      ⚠️  Monitoring thread error: {e}")
+                        break
+            
+            # Capture initial snapshot
+            initial_snapshot = capture_memory_snapshot(step5_start_time)
+            print(f"      📊 Initial snapshot captured at 0.0s")
+            
+            # 4. START CONTINUOUS MONITORING IN BACKGROUND THREAD
+            print(f"   🔄 STARTING CONTINUOUS MONITORING THREAD...")
+            print(f"      Monitoring interval: {monitoring_interval}s")
+            print(f"      Will capture memory usage throughout node execution")
+            
+            # Start monitoring thread BEFORE node execution
+            import threading
+            stop_monitoring = threading.Event()
+            monitor_thread = threading.Thread(
+                target=continuous_monitoring, 
+                args=(monitoring_data, step5_start_time, stop_monitoring),
+                daemon=True  # Thread will be terminated when main program ends
+            )
+            monitor_thread.start()
+            print(f"      ✅ Monitoring thread started successfully")
+            
+            # 5. EXECUTE WANVACETOVIDEO NODE WITH LIVE MONITORING
+            print(f"\n   🔧 EXECUTING WANVACETOVIDEO NODE WITH LIVE MONITORING...")
+            print(f"      📊 Live monitoring active - capturing memory usage every 0.5s...")
+            
+            # Start the node execution
             try:
                 # Import WanVaceToVideo node
                 from comfy_extras.nodes_wan import WanVaceToVideo
-                print("   ✅ WanVaceToVideo node imported successfully")
+                print("      ✅ WanVaceToVideo node imported successfully")
                 
                 # Create node instance
                 wanvacetovideo = WanVaceToVideo()
-                print("   ✅ WanVaceToVideo node instance created")
+                print("      ✅ WanVaceToVideo node instance created")
                 
                 # Execute the node with our inputs
-                print("   🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED...")
+                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED...")
+                print("      📊 Live monitoring active - capturing memory usage...")
+                
+                # Execute node and capture memory during execution
                 wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
                     width=480,
                     height=832,
@@ -3002,28 +3134,230 @@ def main():
                     reference_image=get_value_at_index(loadimage_4, 0),
                 )
                 
-                print("   ✅ WanVaceToVideo node executed successfully!")
-                print(f"   📊 Output type: {type(wanvacetovideo_13).__name__}")
+                print("      ✅ WanVaceToVideo node executed successfully!")
+                print(f"      📊 Output type: {type(wanvacetovideo_13).__name__}")
                 
                 # Show output details if available
                 if hasattr(wanvacetovideo_13, 'shape'):
-                    print(f"   📐 Output shape: {wanvacetovideo_13.shape}")
+                    print(f"      📐 Output shape: {wanvacetovideo_13.shape}")
                 elif hasattr(wanvacetovideo_13, '__len__'):
-                    print(f"   📐 Output length: {len(wanvacetovideo_13)}")
+                    print(f"      📐 Output length: {len(wanvacetovideo_13)}")
                     if len(wanvacetovideo_13) > 0 and hasattr(wanvacetovideo_13[0], 'shape'):
-                        print(f"   📐 First output shape: {wanvacetovideo_13[0].shape}")
-                
-                print("✅ Step 5 completed: WanVaceToVideo Node Execution")
+                        print(f"      📐 First output shape: {wanvacetovideo_13[0].shape}")
                 
             except ImportError:
-                print("   ❌ WanVaceToVideo node not available")
-                print("   💡 This node should be available in comfy_extras.nodes_wan")
+                print("      ❌ WanVaceToVideo node not available")
+                print("      💡 This node should be available in comfy_extras.nodes_wan")
                 return
             except Exception as node_error:
-                print(f"   ❌ WanVaceToVideo node execution failed: {node_error}")
-                print("   🔍 Check the error details above")
+                print(f"      ❌ WanVaceToVideo node execution failed: {node_error}")
+                print("      🔍 Check the error details above")
                 return
+            
+            # 6. STOP MONITORING THREAD AND CAPTURE FINAL SNAPSHOT
+            print(f"\n   🔄 STOPPING MONITORING THREAD...")
+            
+            # Stop the monitoring thread
+            stop_monitoring.set()
+            monitor_thread.join(timeout=2.0)  # Wait up to 2 seconds for thread to finish
+            print(f"      ✅ Monitoring thread stopped successfully")
+            
+            # Capture final snapshot
+            step5_end_time = time.time()
+            final_snapshot = capture_memory_snapshot(step5_end_time)
+            execution_time = step5_end_time - step5_start_time
+            
+            print(f"      📊 Final snapshot captured at {execution_time:.1f}s")
+            print(f"      📊 Total snapshots captured: {len(monitoring_data)}")
+            
+            # Show monitoring statistics
+            if len(monitoring_data) > 2:
+                expected_snapshots = int(execution_time / monitoring_interval) + 2  # +2 for start and end
+                print(f"      📊 Expected snapshots: ~{expected_snapshots} (based on {execution_time:.1f}s execution)")
+                print(f"      📊 Actual snapshots: {len(monitoring_data)}")
+                if len(monitoring_data) >= expected_snapshots * 0.8:  # Allow 20% tolerance
+                    print(f"      ✅ Monitoring coverage: GOOD")
+                else:
+                    print(f"      ⚠️  Monitoring coverage: LIMITED (may have missed some snapshots)")
+            
+            # 7. MODEL LOCATION POST-EXECUTION
+            print(f"\n   📍 CAPTURING MODEL LOCATION POST-EXECUTION...")
+            
+            # Get model locations after execution
+            unet_location_after = getattr(modified_unet_sampled, 'device', 'unknown') if 'modified_unet_sampled' in locals() else 'N/A'
+            vae_location_after = getattr(vaeloader_7, 'device', 'unknown') if 'vaeloader_7' in locals() else 'N/A'
+            clip_location_after = getattr(modified_clip, 'device', 'unknown') if 'modified_clip' in locals() else 'N/A'
+            
+            # Check if models have patcher attributes
+            if hasattr(vaeloader_7, 'patcher') and hasattr(vaeloader_7.patcher, 'model'):
+                vae_patcher_location_after = getattr(vaeloader_7.patcher.model, 'device', 'unknown')
+                print(f"      🎨 VAE Location: {vae_location_after} (patcher model: {vae_patcher_location_after})")
+            else:
+                print(f"      🎨 VAE Location: {vae_location_after}")
                 
+            if hasattr(modified_unet_sampled, 'patcher') and hasattr(modified_unet_sampled.patcher, 'model'):
+                unet_patcher_location_after = getattr(modified_unet_sampled.patcher.model, 'device', 'unknown')
+                print(f"      🧠 UNET Location: {unet_location_after} (patcher model: {unet_patcher_location_after})")
+            else:
+                print(f"      🧠 UNET Location: {unet_location_after}")
+                
+            if hasattr(modified_clip, 'patcher') and hasattr(modified_clip.patcher, 'model'):
+                clip_patcher_location_after = getattr(modified_clip.patcher.model, 'device', 'unknown')
+                print(f"      📝 CLIP Location: {clip_location_after} (patcher model: {clip_patcher_location_after})")
+            else:
+                print(f"      📝 CLIP Location: {clip_location_after}")
+            
+            # 8. COMPREHENSIVE MONITORING ANALYSIS
+            print(f"\n" + "="*80)
+            print(f"🔍 STEP 5 CONTINUOUS MONITORING ANALYSIS")
+            print(f"="*80)
+            
+            # Performance Analysis
+            print(f"⏱️  PERFORMANCE ANALYSIS:")
+            print(f"   Total Execution Time: {execution_time:.3f} seconds")
+            print(f"   Node Execution: WanVaceToVideo.EXECUTE_NORMALIZED")
+            print(f"   Input Dimensions: 480x832, 37 frames, batch_size=1")
+            print(f"   Monitoring Snapshots: {len(monitoring_data)} captured")
+            
+            # Continuous Memory Usage Timeline
+            print(f"\n📊 CONTINUOUS MEMORY USAGE TIMELINE:")
+            print(f"   Time Format: Elapsed Time (s) | RAM Used (GB) | GPU Allocated (GB)")
+            print(f"   {'-'*80}")
+            
+            for i, snapshot in enumerate(monitoring_data):
+                elapsed = snapshot['elapsed_time']
+                ram_gb = snapshot['ram']['used_mb'] / 1024
+                gpu_gb = snapshot['gpu']['allocated_mb'] / 1024
+                
+                # Show every snapshot with clear formatting
+                print(f"   {elapsed:6.1f}s | RAM: {ram_gb:6.2f} GB | GPU: {gpu_gb:6.2f} GB")
+                
+                # Add extra info for key moments
+                if i == 0:
+                    print(f"      📍 START - Before node execution")
+                elif i == len(monitoring_data) - 1:
+                    print(f"      📍 END - After node execution")
+                elif elapsed > 0 and elapsed < execution_time:
+                    print(f"      📍 DURING - Node execution in progress")
+            
+            # Memory Impact Analysis
+            print(f"\n💾 MEMORY IMPACT ANALYSIS:")
+            
+            # Calculate changes from start to end
+            if len(monitoring_data) >= 2:
+                start_snapshot = monitoring_data[0]
+                end_snapshot = monitoring_data[-1]
+                
+                # RAM Changes
+                ram_change_mb = end_snapshot['ram']['used_mb'] - start_snapshot['ram']['used_mb']
+                ram_available_change_mb = end_snapshot['ram']['available_mb'] - start_snapshot['ram']['available_mb']
+                ram_percent_change = end_snapshot['ram']['percent'] - start_snapshot['ram']['percent']
+                
+                print(f"   🖥️  RAM CHANGES (Start → End):")
+                print(f"      Used: {ram_change_mb:+.1f} MB ({start_snapshot['ram']['used_mb']:.1f} → {end_snapshot['ram']['used_mb']:.1f} MB)")
+                print(f"      Available: {ram_available_change_mb:+.1f} MB ({start_snapshot['ram']['available_mb']:.1f} → {end_snapshot['ram']['available_mb']:.1f} MB)")
+                print(f"      Usage: {ram_percent_change:+.1f}% ({start_snapshot['ram']['percent']:.1f}% → {end_snapshot['ram']['percent']:.1f}%)")
+                
+                # GPU Changes
+                gpu_allocated_change = end_snapshot['gpu']['allocated_mb'] - start_snapshot['gpu']['allocated_mb']
+                gpu_reserved_change = end_snapshot['gpu']['reserved_mb'] - start_snapshot['gpu']['reserved_mb']
+                
+                print(f"   🎮 GPU CHANGES (Start → End):")
+                print(f"      Allocated: {gpu_allocated_change:+.1f} MB ({start_snapshot['gpu']['allocated_mb']:.1f} → {end_snapshot['gpu']['allocated_mb']:.1f} MB)")
+                print(f"      Reserved: {gpu_reserved_change:+.1f} MB ({start_snapshot['gpu']['reserved_mb']:.1f} → {end_snapshot['gpu']['reserved_mb']:.1f} MB)")
+                print(f"      Total VRAM: {end_snapshot['gpu']['total_mb']:.1f} MB")
+            
+            # Peak Memory Analysis
+            print(f"\n📈 PEAK MEMORY ANALYSIS:")
+            if len(monitoring_data) > 0:
+                # Find peak RAM usage
+                peak_ram = max(snapshot['ram']['used_mb'] for snapshot in monitoring_data)
+                peak_ram_time = next(snapshot['elapsed_time'] for snapshot in monitoring_data if snapshot['ram']['used_mb'] == peak_ram)
+                
+                # Find peak GPU usage
+                peak_gpu = max(snapshot['gpu']['allocated_mb'] for snapshot in monitoring_data)
+                peak_gpu_time = next(snapshot['elapsed_time'] for snapshot in monitoring_data if snapshot['gpu']['allocated_mb'] == peak_gpu)
+                
+                print(f"   🖥️  RAM Peak: {peak_ram:.1f} MB at {peak_ram_time:.1f}s")
+                print(f"   🎮 GPU Peak: {peak_gpu:.1f} MB at {peak_gpu_time:.1f}s")
+                
+                # Show baseline vs peak
+                baseline_ram_gb = baseline_ram_mb / 1024
+                baseline_gpu_gb = baseline_gpu_allocated / 1024
+                peak_ram_gb = peak_ram / 1024
+                peak_gpu_gb = peak_gpu / 1024
+                
+                print(f"   📊 RAM: {baseline_ram_gb:.2f} GB → Peak: {peak_ram_gb:.2f} GB (Change: {peak_ram_gb - baseline_ram_gb:+.2f} GB)")
+                print(f"   📊 GPU: {baseline_gpu_gb:.2f} GB → Peak: {peak_gpu_gb:.2f} GB (Change: {peak_gpu_gb - baseline_gpu_gb:+.2f} GB)")
+            
+            # Model Movement Analysis
+            print(f"\n📍 MODEL MOVEMENT ANALYSIS:")
+            
+            # VAE Movement
+            if vae_location_before != vae_location_after:
+                print(f"   🎨 VAE MOVED: {vae_location_before} → {vae_location_after}")
+                if hasattr(vaeloader_7, 'patcher') and hasattr(vaeloader_7.patcher, 'model'):
+                    if vae_patcher_location != vae_patcher_location_after:
+                        print(f"      VAE Patcher Model MOVED: {vae_patcher_location} → {vae_patcher_location_after}")
+                    else:
+                        print(f"      VAE Patcher Model: NO MOVEMENT ({vae_patcher_location})")
+            else:
+                print(f"   🎨 VAE: NO MOVEMENT ({vae_location_before})")
+            
+            # UNET Movement
+            if unet_location_before != unet_location_after:
+                print(f"   🧠 UNET MOVED: {unet_location_before} → {unet_location_after}")
+                if hasattr(modified_unet_sampled, 'patcher') and hasattr(modified_unet_sampled.patcher, 'model'):
+                    if unet_patcher_location != unet_patcher_location_after:
+                        print(f"      UNET Patcher Model MOVED: {unet_patcher_location} → {unet_patcher_location_after}")
+                    else:
+                        print(f"      UNET Patcher Model: NO MOVEMENT ({unet_patcher_location})")
+            else:
+                print(f"   🧠 UNET: NO MOVEMENT ({unet_location_before})")
+            
+            # CLIP Movement
+            if clip_location_before != clip_location_after:
+                print(f"   📝 CLIP MOVED: {clip_location_before} → {clip_location_after}")
+                if hasattr(modified_clip, 'patcher') and hasattr(modified_clip.patcher, 'model'):
+                    if clip_patcher_location != clip_patcher_location_after:
+                        print(f"      CLIP Patcher Model MOVED: {clip_patcher_location} → {clip_patcher_location_after}")
+                    else:
+                        print(f"      CLIP Patcher Model: NO MOVEMENT ({clip_patcher_location})")
+            else:
+                print(f"   📝 CLIP: NO MOVEMENT ({clip_location_before})")
+            
+            # Memory Pattern Analysis
+            print(f"\n💡 MEMORY PATTERN ANALYSIS:")
+            if len(monitoring_data) >= 3:
+                print(f"   📊 Memory usage pattern during execution:")
+                
+                # Analyze memory trends
+                memory_trends = []
+                for i in range(1, len(monitoring_data)):
+                    prev = monitoring_data[i-1]
+                    curr = monitoring_data[i]
+                    
+                    ram_change = curr['ram']['used_mb'] - prev['ram']['used_mb']
+                    gpu_change = curr['gpu']['allocated_mb'] - prev['gpu']['allocated_mb']
+                    
+                    if abs(ram_change) > 10 or abs(gpu_change) > 10:  # Significant changes
+                        memory_trends.append({
+                            'time_range': f"{prev['elapsed_time']:.1f}s - {curr['elapsed_time']:.1f}s",
+                            'ram_change': ram_change,
+                            'gpu_change': gpu_change
+                        })
+                
+                if memory_trends:
+                    print(f"   📈 Significant memory changes detected:")
+                    for trend in memory_trends:
+                        ram_sign = "+" if trend['ram_change'] > 0 else ""
+                        gpu_sign = "+" if trend['gpu_change'] > 0 else ""
+                        print(f"      {trend['time_range']}: RAM {ram_sign}{trend['ram_change']:+.1f} MB, GPU {gpu_sign}{trend['gpu_change']:+.1f} MB")
+                else:
+                    print(f"   📊 Memory usage remained relatively stable during execution")
+            
+            print(f"="*80)
+            print(f"✅ Step 5 completed: WanVaceToVideo Node Execution with Continuous Monitoring")
         except Exception as e:
             print(f"❌ ERROR during WanVaceToVideo execution: {e}")
             print("🔍 Cannot proceed with latent generation")
