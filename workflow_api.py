@@ -39,7 +39,7 @@ class VAEEncodeMonitor:
         self.encode_calls = []
         self.gpu_monitoring_active = False
         self.gpu_monitor_thread = None
-        self.stop_gpu_monitoring = threading.Event()
+        self.stop_gpu_monitoring_event = threading.Event()
         self.gpu_peak_data = []
         self.current_encode_call = None
         
@@ -49,7 +49,7 @@ class VAEEncodeMonitor:
             return
             
         self.gpu_monitoring_active = True
-        self.stop_gpu_monitoring.clear()
+        self.stop_gpu_monitoring_event.clear()
         self.gpu_peak_data = []
         
         self.gpu_monitor_thread = threading.Thread(
@@ -64,7 +64,7 @@ class VAEEncodeMonitor:
         if not self.gpu_monitoring_active:
             return
             
-        self.stop_gpu_monitoring.set()
+        self.stop_gpu_monitoring_event.set()
         if self.gpu_monitor_thread:
             self.gpu_monitor_thread.join(timeout=2.0)
         
@@ -73,7 +73,7 @@ class VAEEncodeMonitor:
     
     def _gpu_monitoring_worker(self):
         """Background thread that continuously monitors GPU usage"""
-        while not self.stop_gpu_monitoring.is_set():
+        while not self.stop_gpu_monitoring_event.is_set():
             try:
                 if torch.cuda.is_available():
                     allocated_mb = torch.cuda.memory_allocated() / (1024**2)
