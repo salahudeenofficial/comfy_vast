@@ -141,6 +141,8 @@ class VAEEncodeMonitor:
             # Execute the encode call
             print(f"      🔧 Executing VAE.encode() call #{encode_call_id} ({call_type})")
             print(f"         Input shape: {input_info['shape']}")
+            print(f"         Input datatype: {input_info['dtype']}")
+            print(f"         Input device: {input_info['device']}")
             print(f"         Input size: {input_info['size_mb']:.2f} MB")
             print(f"         Tiled encoding: {'YES' if input_info['requires_tiling'] else 'NO'}")
             
@@ -339,6 +341,8 @@ class VAEEncodeMonitor:
         # Input info
         input_info = encode_call_data['input_info']
         print(f"         Input: {input_info['shape']} ({input_info['size_mb']:.2f} MB)")
+        print(f"         Datatype: {input_info['dtype']}")
+        print(f"         Device: {input_info['device']}")
         print(f"         Tiled: {'YES' if input_info['requires_tiling'] else 'NO'}")
         
         # Output info
@@ -429,6 +433,8 @@ class VAEEncodeMonitor:
             print(f"      Status: {'✅ SUCCESS' if call['success'] else '❌ FAILED'}")
             print(f"      Duration: {call['duration']:.3f}s")
             print(f"      Input: {call['input_info']['shape']} ({call['input_info']['size_mb']:.2f} MB)")
+            print(f"      Datatype: {call['input_info']['dtype']}")
+            print(f"      Device: {call['input_info']['device']}")
             print(f"      Tiled: {'YES' if call['input_info']['requires_tiling'] else 'NO'}")
             
             if call['success'] and call['output_info']:
