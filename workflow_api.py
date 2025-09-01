@@ -6,6 +6,7 @@ import psutil
 from typing import Sequence, Mapping, Any, Union
 import torch
 import numpy as np
+import threading
 
 # Try to import video loading libraries
 try:
@@ -31,6 +32,423 @@ def attempt_vhs_import():
     pass
 
 # Add monitoring and debugging utilities
+class VAEEncodeMonitor:
+    """Specialized monitor for VAE .encode() calls with multi-threaded GPU monitoring"""
+    
+    def __init__(self):
+        self.encode_calls = []
+        self.gpu_monitoring_active = False
+        self.gpu_monitor_thread = None
+        self.stop_gpu_monitoring = threading.Event()
+        self.gpu_peak_data = []
+        self.current_encode_call = None
+        
+    def start_gpu_monitoring(self):
+        """Start continuous GPU monitoring in background thread"""
+        if self.gpu_monitoring_active:
+            return
+            
+        self.gpu_monitoring_active = True
+        self.stop_gpu_monitoring.clear()
+        self.gpu_peak_data = []
+        
+        self.gpu_monitor_thread = threading.Thread(
+            target=self._gpu_monitoring_worker,
+            daemon=True
+        )
+        self.gpu_monitor_thread.start()
+        print(f"      🔄 GPU monitoring thread started")
+    
+    def stop_gpu_monitoring(self):
+        """Stop GPU monitoring thread"""
+        if not self.gpu_monitoring_active:
+            return
+            
+        self.stop_gpu_monitoring.set()
+        if self.gpu_monitor_thread:
+            self.gpu_monitor_thread.join(timeout=2.0)
+        
+        self.gpu_monitoring_active = False
+        print(f"      🔄 GPU monitoring thread stopped")
+    
+    def _gpu_monitoring_worker(self):
+        """Background thread that continuously monitors GPU usage"""
+        while not self.stop_gpu_monitoring.is_set():
+            try:
+                if torch.cuda.is_available():
+                    allocated_mb = torch.cuda.memory_allocated() / (1024**2)
+                    reserved_mb = torch.cuda.memory_reserved() / (1024**2)
+                    timestamp = time.time()
+                    
+                    # Record peak data
+                    self.gpu_peak_data.append({
+                        'timestamp': timestamp,
+                        'allocated_mb': allocated_mb,
+                        'reserved_mb': reserved_mb,
+                        'encode_call': self.current_encode_call
+                    })
+                
+                time.sleep(0.1)  # Monitor every 100ms for high precision
+            except Exception as e:
+                print(f"      ⚠️  GPU monitoring error: {e}")
+                break
+    
+    def get_gpu_peak_for_encode_call(self, encode_call_id):
+        """Get peak GPU usage for a specific encode call"""
+        if not self.gpu_peak_data:
+            return None
+            
+        # Filter data for this encode call
+        call_data = [d for d in self.gpu_peak_data if d.get('encode_call') == encode_call_id]
+        
+        if not call_data:
+            return None
+            
+        # Find peak
+        peak_allocated = max(d['allocated_mb'] for d in call_data)
+        peak_reserved = max(d['reserved_mb'] for d in call_data)
+        
+        # Find when peak occurred
+        peak_timestamp = next(d['timestamp'] for d in call_data if d['allocated_mb'] == peak_allocated)
+        
+        return {
+            'peak_allocated_mb': peak_allocated,
+            'peak_reserved_mb': peak_reserved,
+            'peak_timestamp': peak_timestamp,
+            'data_points': len(call_data)
+        }
+    
+    def monitor_encode_call(self, vae_model, input_tensor, encode_call_id, call_type="unknown"):
+        """Monitor a single VAE .encode() call with comprehensive tracking"""
+        
+        # Start GPU monitoring before encode
+        self.current_encode_call = encode_call_id
+        self.start_gpu_monitoring()
+        
+        # Capture input information
+        input_info = self._analyze_encode_input(input_tensor, call_type)
+        
+        # Capture baseline GPU state
+        baseline_gpu = {
+            'allocated_mb': torch.cuda.memory_allocated() / (1024**2),
+            'reserved_mb': torch.cuda.memory_reserved() / (1024**2)
+        }
+        
+        # Start timing
+        encode_start_time = time.time()
+        
+        try:
+            # Execute the encode call
+            print(f"      🔧 Executing VAE.encode() call #{encode_call_id} ({call_type})")
+            print(f"         Input shape: {input_info['shape']}")
+            print(f"         Input size: {input_info['size_mb']:.2f} MB")
+            print(f"         Tiled encoding: {'YES' if input_info['requires_tiling'] else 'NO'}")
+            
+            # Execute the actual encode
+            output_tensor = vae_model.encode(input_tensor)
+            
+            # Capture completion time
+            encode_end_time = time.time()
+            encode_duration = encode_end_time - encode_start_time
+            
+            # Stop GPU monitoring
+            self.stop_gpu_monitoring()
+            
+            # Get peak GPU usage for this call
+            peak_gpu = self.get_gpu_peak_for_encode_call(encode_call_id)
+            
+            # Analyze output
+            output_info = self._analyze_encode_output(output_tensor)
+            
+            # Capture final GPU state
+            final_gpu = {
+                'allocated_mb': torch.cuda.memory_allocated() / (1024**2),
+                'reserved_mb': torch.cuda.memory_reserved() / (1024**2)
+            }
+            
+            # Calculate GPU changes
+            gpu_changes = {
+                'allocated_change_mb': final_gpu['allocated_mb'] - baseline_gpu['allocated_mb'],
+                'reserved_change_mb': final_gpu['reserved_mb'] - baseline_gpu['reserved_mb']
+            }
+            
+            # Store encode call data
+            encode_call_data = {
+                'call_id': encode_call_id,
+                'call_type': call_type,
+                'duration': encode_duration,
+                'input_info': input_info,
+                'output_info': output_info,
+                'baseline_gpu': baseline_gpu,
+                'final_gpu': final_gpu,
+                'gpu_changes': gpu_changes,
+                'peak_gpu': peak_gpu,
+                'success': True
+            }
+            
+            self.encode_calls.append(encode_call_data)
+            
+            # Print summary
+            self._print_encode_call_summary(encode_call_data)
+            
+            return output_tensor
+            
+        except Exception as e:
+            # Stop GPU monitoring on error
+            self.stop_gpu_monitoring()
+            
+            # Store error data
+            encode_call_data = {
+                'call_id': encode_call_id,
+                'call_type': call_type,
+                'duration': time.time() - encode_start_time,
+                'input_info': input_info,
+                'output_info': None,
+                'error': str(e),
+                'success': False
+            }
+            
+            self.encode_calls.append(encode_call_data)
+            
+            print(f"      ❌ VAE.encode() call #{encode_call_id} failed: {e}")
+            raise e
+    
+    def _analyze_encode_input(self, input_tensor, call_type):
+        """Analyze input tensor for encode call"""
+        if input_tensor is None:
+            return {
+                'shape': 'None',
+                'dtype': 'None',
+                'device': 'None',
+                'size_mb': 0,
+                'requires_tiling': False,
+                'tile_analysis': 'N/A'
+            }
+        
+        shape = input_tensor.shape
+        dtype = str(input_tensor.dtype)
+        device = str(input_tensor.device)
+        
+        # Calculate size
+        num_elements = input_tensor.numel()
+        size_mb = (num_elements * input_tensor.element_size()) / (1024**2)
+        
+        # Analyze if tiling is required
+        requires_tiling = self._analyze_tiling_requirement(shape, call_type)
+        tile_analysis = self._get_tile_analysis(shape, requires_tiling)
+        
+        return {
+            'shape': shape,
+            'dtype': dtype,
+            'device': device,
+            'size_mb': size_mb,
+            'num_elements': num_elements,
+            'requires_tiling': requires_tiling,
+            'tile_analysis': tile_analysis
+        }
+    
+    def _analyze_tiling_requirement(self, shape, call_type):
+        """Determine if tiling is required based on shape and call type"""
+        if len(shape) != 4:  # Not a standard image tensor
+            return False
+            
+        batch, channels, height, width = shape
+        
+        # VAE encoding typically works with images up to certain sizes
+        # For SD models, typical limit is around 2048x2048
+        # For larger images, tiling might be used
+        
+        max_dimension = max(height, width)
+        
+        # Threshold for tiling (adjust based on model)
+        tiling_threshold = 2048
+        
+        if max_dimension > tiling_threshold:
+            return True
+        
+        # Also check total pixel count
+        total_pixels = height * width
+        pixel_threshold = 2048 * 2048  # 4M pixels
+        
+        if total_pixels > pixel_threshold:
+            return True
+            
+        return False
+    
+    def _get_tile_analysis(self, shape, requires_tiling):
+        """Get detailed tile analysis"""
+        if not requires_tiling:
+            return "No tiling required - image size within limits"
+        
+        batch, channels, height, width = shape
+        max_dimension = max(height, width)
+        total_pixels = height * width
+        
+        analysis = f"Tiling likely required:"
+        analysis += f" Max dimension: {max_dimension} (threshold: 2048)"
+        analysis += f" Total pixels: {total_pixels:,} (threshold: 4,194,304)"
+        
+        # Suggest tile size
+        if max_dimension > 2048:
+            suggested_tile_size = 1024
+            analysis += f" Suggested tile size: {suggested_tile_size}x{suggested_tile_size}"
+        
+        return analysis
+    
+    def _analyze_encode_output(self, output_tensor):
+        """Analyze output tensor from encode call"""
+        if output_tensor is None:
+            return {
+                'shape': 'None',
+                'dtype': 'None',
+                'device': 'None',
+                'size_mb': 0,
+                'compression_ratio': 'N/A'
+            }
+        
+        shape = output_tensor.shape
+        dtype = str(output_tensor.dtype)
+        device = str(output_tensor.device)
+        
+        # Calculate size
+        num_elements = output_tensor.numel()
+        size_mb = (num_elements * output_tensor.element_size()) / (1024**2)
+        
+        # Calculate compression ratio (if we have input info)
+        compression_ratio = "N/A"
+        
+        return {
+            'shape': shape,
+            'dtype': dtype,
+            'device': device,
+            'size_mb': size_mb,
+            'num_elements': num_elements,
+            'compression_ratio': compression_ratio
+        }
+    
+    def _print_encode_call_summary(self, encode_call_data):
+        """Print summary of encode call"""
+        call_id = encode_call_data['call_id']
+        call_type = encode_call_data['call_type']
+        duration = encode_call_data['duration']
+        
+        print(f"      ✅ VAE.encode() call #{call_id} completed")
+        print(f"         Type: {call_type}")
+        print(f"         Duration: {duration:.3f}s")
+        
+        # Input info
+        input_info = encode_call_data['input_info']
+        print(f"         Input: {input_info['shape']} ({input_info['size_mb']:.2f} MB)")
+        print(f"         Tiled: {'YES' if input_info['requires_tiling'] else 'NO'}")
+        
+        # Output info
+        output_info = encode_call_data['output_info']
+        if output_info:
+            print(f"         Output: {output_info['shape']} ({output_info['size_mb']:.2f} MB)")
+        
+        # GPU info
+        peak_gpu = encode_call_data.get('peak_gpu')
+        if peak_gpu:
+            print(f"         Peak GPU: {peak_gpu['peak_allocated_mb']:.1f} MB allocated")
+        
+        gpu_changes = encode_call_data.get('gpu_changes')
+        if gpu_changes:
+            print(f"         GPU Change: {gpu_changes['allocated_change_mb']:+.1f} MB allocated")
+    
+    def print_comprehensive_summary(self):
+        """Print comprehensive summary of all encode calls"""
+        print(f"\n" + "="*80)
+        print(f"🔍 VAE ENCODE MONITORING COMPREHENSIVE SUMMARY")
+        print(f"="*80)
+        
+        if not self.encode_calls:
+            print("   ❌ No encode calls monitored")
+            return
+        
+        print(f"📊 TOTAL ENCODE CALLS: {len(self.encode_calls)}")
+        
+        # Summary by call type
+        call_types = {}
+        for call in self.encode_calls:
+            call_type = call['call_type']
+            if call_type not in call_types:
+                call_types[call_type] = []
+            call_types[call_type].append(call)
+        
+        print(f"\n📋 ENCODE CALLS BY TYPE:")
+        for call_type, calls in call_types.items():
+            print(f"   {call_type}: {len(calls)} calls")
+        
+        # Performance analysis
+        print(f"\n⏱️  PERFORMANCE ANALYSIS:")
+        total_duration = sum(call['duration'] for call in self.encode_calls if call['success'])
+        avg_duration = total_duration / len([c for c in self.encode_calls if c['success']]) if self.encode_calls else 0
+        
+        print(f"   Total Duration: {total_duration:.3f}s")
+        print(f"   Average Duration: {avg_duration:.3f}s")
+        
+        # GPU analysis
+        print(f"\n🎮 GPU USAGE ANALYSIS:")
+        successful_calls = [c for c in self.encode_calls if c['success'] and c.get('peak_gpu')]
+        
+        if successful_calls:
+            # Peak GPU across all calls
+            all_peaks = [call['peak_gpu']['peak_allocated_mb'] for call in successful_calls]
+            max_peak = max(all_peaks)
+            min_peak = min(all_peaks)
+            avg_peak = sum(all_peaks) / len(all_peaks)
+            
+            print(f"   Peak GPU Usage:")
+            print(f"      Maximum: {max_peak:.1f} MB")
+            print(f"      Minimum: {min_peak:.1f} MB")
+            print(f"      Average: {avg_peak:.1f} MB")
+            
+            # Find which call had the highest peak
+            max_peak_call = next(call for call in successful_calls 
+                               if call['peak_gpu']['peak_allocated_mb'] == max_peak)
+            print(f"      Highest Peak: Call #{max_peak_call['call_id']} ({max_peak_call['call_type']})")
+        
+        # Tiling analysis
+        print(f"\n🧩 TILING ANALYSIS:")
+        tiled_calls = [c for c in self.encode_calls if c['input_info']['requires_tiling']]
+        non_tiled_calls = [c for c in self.encode_calls if not c['input_info']['requires_tiling']]
+        
+        print(f"   Tiled Encodes: {len(tiled_calls)} calls")
+        print(f"   Non-tiled Encodes: {len(non_tiled_calls)} calls")
+        
+        if tiled_calls:
+            print(f"   📊 Tiled encode details:")
+            for call in tiled_calls:
+                print(f"      Call #{call['call_id']} ({call['call_type']}): {call['input_info']['shape']}")
+                print(f"         {call['input_info']['tile_analysis']}")
+        
+        # Detailed call breakdown
+        print(f"\n📋 DETAILED CALL BREAKDOWN:")
+        for i, call in enumerate(self.encode_calls):
+            print(f"   {i+1}. Call #{call['call_id']} ({call['call_type']})")
+            print(f"      Status: {'✅ SUCCESS' if call['success'] else '❌ FAILED'}")
+            print(f"      Duration: {call['duration']:.3f}s")
+            print(f"      Input: {call['input_info']['shape']} ({call['input_info']['size_mb']:.2f} MB)")
+            print(f"      Tiled: {'YES' if call['input_info']['requires_tiling'] else 'NO'}")
+            
+            if call['success'] and call['output_info']:
+                print(f"         Output: {call['output_info']['shape']} ({call['output_info']['size_mb']:.2f} MB)")
+            
+            if call.get('peak_gpu'):
+                peak = call['peak_gpu']
+                print(f"         Peak GPU: {peak['peak_allocated_mb']:.1f} MB allocated")
+            
+            if call.get('gpu_changes'):
+                changes = call['gpu_changes']
+                print(f"         GPU Change: {changes['allocated_change_mb']:+.1f} MB allocated")
+            
+            if not call['success']:
+                print(f"         Error: {call.get('error', 'Unknown error')}")
+            
+            print()
+        
+        print(f"="*80)
+
 class ModelLoadingMonitor:
     """Comprehensive monitoring for model loading steps"""
     
@@ -2047,8 +2465,9 @@ class ModelLoadingMonitor:
         
         print("=" * 80)
 
-# Initialize the monitor
+# Initialize the monitors
 model_monitor = ModelLoadingMonitor()
+vae_encode_monitor = VAEEncodeMonitor()
 
 
 def find_safu_files():
@@ -2948,11 +3367,11 @@ def main():
         # === STEP 4 END: MODEL SAMPLING ===
 
         # === STEP 5 START: INITIAL LATENT GENERATION ===
-        print("5. Executing WanVaceToVideo node with continuous monitoring...")
+        print("5. Executing WanVaceToVideo node with VAE .encode() monitoring...")
         
-        # Execute WanVaceToVideo node directly with inputs from previous steps
+        # Execute WanVaceToVideo node with VAE encode monitoring
         try:
-            print("\n🔧 EXECUTING WANVACETOVIDEO NODE WITH CONTINUOUS MONITORING...")
+            print("\n🔧 EXECUTING WANVACETOVIDEO NODE WITH VAE ENCODE MONITORING...")
             
             # Check if we have all required inputs
             required_inputs = {
@@ -2975,138 +3394,61 @@ def main():
                 print("🔍 Please ensure all previous steps completed successfully")
                 return
             
-            print(f"\n   ✅ All required inputs available - proceeding with node execution")
+            print(f"\n   ✅ All required inputs available - proceeding with VAE encode monitoring")
             
-            # === CONTINUOUS MONITORING SETUP ===
-            print(f"\n🔍 SETTING UP CONTINUOUS MONITORING FOR STEP 5...")
+            # === VAE ENCODE MONITORING SETUP ===
+            print(f"\n🔍 SETTING UP VAE ENCODE MONITORING...")
             
-            # 1. CAPTURE BASELINE STATE (BEFORE NODE EXECUTION)
-            print(f"   📊 CAPTURING BASELINE STATE (BEFORE NODE EXECUTION)...")
+            # Get VAE model for monitoring
+            vae_model = get_value_at_index(vaeloader_7, 0)
+            print(f"   🎨 VAE Model: {type(vae_model).__name__}")
             
-            # RAM baseline
-            baseline_ram = psutil.virtual_memory()
-            baseline_ram_mb = baseline_ram.used / (1024**2)
-            baseline_ram_available_mb = baseline_ram.available / (1024**2)
-            baseline_ram_percent = baseline_ram.percent
-            
-            # GPU baseline
-            baseline_gpu_allocated = torch.cuda.memory_allocated() / (1024**2)
-            baseline_gpu_reserved = torch.cuda.memory_reserved() / (1024**2)
-            baseline_gpu_total = torch.cuda.get_device_properties(0).total_memory / (1024**2)
-            
-            print(f"      🖥️  RAM Baseline: {baseline_ram_mb:.1f} MB used, {baseline_ram_available_mb:.1f} MB available ({baseline_ram_percent:.1f}%)")
-            print(f"      🎮 GPU Baseline: {baseline_gpu_allocated:.1f} MB allocated, {baseline_gpu_reserved:.1f} MB reserved, {baseline_gpu_total:.1f} MB total")
-            
-            # 2. MODEL LOCATION BASELINE (BEFORE NODE EXECUTION)
-            print(f"   📍 CAPTURING MODEL LOCATION BASELINE...")
-            
-            # Get model locations before execution
-            unet_location_before = getattr(modified_unet_sampled, 'device', 'unknown') if 'modified_unet_sampled' in locals() else 'N/A'
-            vae_location_before = getattr(vaeloader_7, 'device', 'unknown') if 'vaeloader_7' in locals() else 'N/A'
-            clip_location_before = getattr(modified_clip, 'device', 'unknown') if 'modified_clip' in locals() else 'N/A'
-            
-            # Check if models have patcher attributes
-            if hasattr(vaeloader_7, 'patcher') and hasattr(vaeloader_7.patcher, 'model'):
-                vae_patcher_location = getattr(vaeloader_7.patcher.model, 'device', 'unknown')
-                print(f"      🎨 VAE Location: {vae_location_before} (patcher model: {vae_patcher_location})")
-            else:
-                print(f"      🎨 VAE Location: {vae_location_before}")
+            # Create a wrapper to intercept VAE encode calls
+            class VAEEncodeWrapper:
+                def __init__(self, original_vae, monitor):
+                    self.original_vae = original_vae
+                    self.monitor = monitor
+                    self.encode_call_counter = 0
                 
-            if hasattr(modified_unet_sampled, 'patcher') and hasattr(modified_unet_sampled.patcher, 'model'):
-                unet_patcher_location = getattr(modified_unet_sampled.patcher.model, 'device', 'unknown')
-                print(f"      🧠 UNET Location: {unet_location_before} (patcher model: {unet_patcher_location})")
-            else:
-                print(f"      🧠 UNET Location: {unet_location_before}")
+                def encode(self, pixel_samples):
+                    """Intercept encode calls and monitor them"""
+                    self.encode_call_counter += 1
+                    call_id = self.encode_call_counter
+                    
+                    # Determine call type based on input
+                    if hasattr(pixel_samples, 'shape'):
+                        shape = pixel_samples.shape
+                        if len(shape) == 4:  # Standard image tensor
+                            if shape[0] == 1:  # Single image
+                                call_type = "Reference Image"
+                            else:
+                                call_type = "Video Frames"
+                        else:
+                            call_type = "Unknown Tensor"
+                    else:
+                        call_type = "Unknown Input"
+                    
+                    print(f"\n   🔍 INTERCEPTING VAE.encode() call #{call_id} ({call_type})")
+                    
+                    # Use the monitor to track this encode call
+                    return self.monitor.monitor_encode_call(
+                        self.original_vae, 
+                        pixel_samples, 
+                        call_id, 
+                        call_type
+                    )
                 
-            if hasattr(modified_clip, 'patcher') and hasattr(modified_clip.patcher, 'model'):
-                clip_patcher_location = getattr(modified_clip.patcher.model, 'device', 'unknown')
-                print(f"      📝 CLIP Location: {clip_location_before} (patcher model: {clip_patcher_location})")
-            else:
-                print(f"      📝 CLIP Location: {clip_location_before}")
+                def __getattr__(self, name):
+                    """Delegate all other attributes to the original VAE"""
+                    return getattr(self.original_vae, name)
             
-            # 3. SETUP CONTINUOUS MONITORING
-            print(f"   ⏱️  SETTING UP CONTINUOUS MONITORING (every 0.5 seconds)...")
+            # Wrap the VAE model with monitoring
+            monitored_vae = VAEEncodeWrapper(vae_model, vae_encode_monitor)
+            print(f"   ✅ VAE model wrapped with encode monitoring")
             
-            # Initialize monitoring variables
-            monitoring_data = []
-            monitoring_interval = 0.5  # Monitor every 0.5 seconds
-            step5_start_time = time.time()
+            # === EXECUTE WANVACETOVIDEO WITH MONITORED VAE ===
+            print(f"\n   🔧 EXECUTING WANVACETOVIDEO WITH MONITORED VAE...")
             
-            # Function to capture memory snapshot
-            def capture_memory_snapshot(timestamp):
-                try:
-                    # Capture RAM
-                    ram = psutil.virtual_memory()
-                    ram_used_mb = ram.used / (1024**2)
-                    ram_available_mb = ram.available / (1024**2)
-                    ram_percent = ram.percent
-                    
-                    # Capture GPU
-                    gpu_allocated_mb = torch.cuda.memory_allocated() / (1024**2)
-                    gpu_reserved_mb = torch.cuda.memory_reserved() / (1024**2)
-                    gpu_total_mb = torch.cuda.get_device_properties(0).total_memory / (1024**2)
-                    
-                    snapshot = {
-                        'timestamp': timestamp,
-                        'elapsed_time': timestamp - step5_start_time,
-                        'ram': {
-                            'used_mb': ram_used_mb,
-                            'available_mb': ram_available_mb,
-                            'percent': ram_percent
-                        },
-                        'gpu': {
-                            'allocated_mb': gpu_allocated_mb,
-                            'reserved_mb': gpu_reserved_mb,
-                            'total_mb': gpu_total_mb
-                        }
-                    }
-                    
-                    monitoring_data.append(snapshot)
-                    return snapshot
-                except Exception as e:
-                    print(f"      ⚠️  Memory snapshot failed: {e}")
-                    return None
-            
-            # Function for continuous monitoring in background thread
-            def continuous_monitoring(monitoring_data, step5_start_time, stop_event):
-                """Background thread that captures memory every 0.5 seconds"""
-                while not stop_event.is_set():
-                    try:
-                        # Capture memory snapshot
-                        timestamp = time.time()
-                        snapshot = capture_memory_snapshot(timestamp)
-                        
-                        # Wait 0.5 seconds before next capture
-                        time.sleep(0.5)
-                    except Exception as e:
-                        print(f"      ⚠️  Monitoring thread error: {e}")
-                        break
-            
-            # Capture initial snapshot
-            initial_snapshot = capture_memory_snapshot(step5_start_time)
-            print(f"      📊 Initial snapshot captured at 0.0s")
-            
-            # 4. START CONTINUOUS MONITORING IN BACKGROUND THREAD
-            print(f"   🔄 STARTING CONTINUOUS MONITORING THREAD...")
-            print(f"      Monitoring interval: {monitoring_interval}s")
-            print(f"      Will capture memory usage throughout node execution")
-            
-            # Start monitoring thread BEFORE node execution
-            import threading
-            stop_monitoring = threading.Event()
-            monitor_thread = threading.Thread(
-                target=continuous_monitoring, 
-                args=(monitoring_data, step5_start_time, stop_monitoring),
-                daemon=True  # Thread will be terminated when main program ends
-            )
-            monitor_thread.start()
-            print(f"      ✅ Monitoring thread started successfully")
-            
-            # 5. EXECUTE WANVACETOVIDEO NODE WITH LIVE MONITORING
-            print(f"\n   🔧 EXECUTING WANVACETOVIDEO NODE WITH LIVE MONITORING...")
-            print(f"      📊 Live monitoring active - capturing memory usage every 0.5s...")
-            
-            # Start the node execution
             try:
                 # Import WanVaceToVideo node
                 from comfy_extras.nodes_wan import WanVaceToVideo
@@ -3116,11 +3458,13 @@ def main():
                 wanvacetovideo = WanVaceToVideo()
                 print("      ✅ WanVaceToVideo node instance created")
                 
-                # Execute the node with our inputs
-                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED...")
-                print("      📊 Live monitoring active - capturing memory usage...")
+                # Temporarily replace the VAE in the node to use our monitored version
+                # We need to patch the node's VAE reference
+                original_vae_ref = get_value_at_index(vaeloader_7, 0)
                 
-                # Execute node and capture memory during execution
+                # Execute the node with our monitored VAE
+                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED with monitored VAE...")
+                
                 wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
                     width=480,
                     height=832,
@@ -3129,7 +3473,7 @@ def main():
                     strength=1,
                     positive=get_value_at_index(positive_cond_tuple, 0),
                     negative=get_value_at_index(negative_cond_tuple, 0),
-                    vae=get_value_at_index(vaeloader_7, 0),
+                    vae=monitored_vae,  # Use our monitored VAE
                     control_video=get_value_at_index(vhs_loadvideo_1, 0),
                     reference_image=get_value_at_index(loadimage_4, 0),
                 )
@@ -3154,210 +3498,17 @@ def main():
                 print("      🔍 Check the error details above")
                 return
             
-            # 6. STOP MONITORING THREAD AND CAPTURE FINAL SNAPSHOT
-            print(f"\n   🔄 STOPPING MONITORING THREAD...")
-            
-            # Stop the monitoring thread
-            stop_monitoring.set()
-            monitor_thread.join(timeout=2.0)  # Wait up to 2 seconds for thread to finish
-            print(f"      ✅ Monitoring thread stopped successfully")
-            
-            # Capture final snapshot
-            step5_end_time = time.time()
-            final_snapshot = capture_memory_snapshot(step5_end_time)
-            execution_time = step5_end_time - step5_start_time
-            
-            print(f"      📊 Final snapshot captured at {execution_time:.1f}s")
-            print(f"      📊 Total snapshots captured: {len(monitoring_data)}")
-            
-            # Show monitoring statistics
-            if len(monitoring_data) > 2:
-                expected_snapshots = int(execution_time / monitoring_interval) + 2  # +2 for start and end
-                print(f"      📊 Expected snapshots: ~{expected_snapshots} (based on {execution_time:.1f}s execution)")
-                print(f"      📊 Actual snapshots: {len(monitoring_data)}")
-                if len(monitoring_data) >= expected_snapshots * 0.8:  # Allow 20% tolerance
-                    print(f"      ✅ Monitoring coverage: GOOD")
-                else:
-                    print(f"      ⚠️  Monitoring coverage: LIMITED (may have missed some snapshots)")
-            
-            # 7. MODEL LOCATION POST-EXECUTION
-            print(f"\n   📍 CAPTURING MODEL LOCATION POST-EXECUTION...")
-            
-            # Get model locations after execution
-            unet_location_after = getattr(modified_unet_sampled, 'device', 'unknown') if 'modified_unet_sampled' in locals() else 'N/A'
-            vae_location_after = getattr(vaeloader_7, 'device', 'unknown') if 'vaeloader_7' in locals() else 'N/A'
-            clip_location_after = getattr(modified_clip, 'device', 'unknown') if 'modified_clip' in locals() else 'N/A'
-            
-            # Check if models have patcher attributes
-            if hasattr(vaeloader_7, 'patcher') and hasattr(vaeloader_7.patcher, 'model'):
-                vae_patcher_location_after = getattr(vaeloader_7.patcher.model, 'device', 'unknown')
-                print(f"      🎨 VAE Location: {vae_location_after} (patcher model: {vae_patcher_location_after})")
-            else:
-                print(f"      🎨 VAE Location: {vae_location_after}")
-                
-            if hasattr(modified_unet_sampled, 'patcher') and hasattr(modified_unet_sampled.patcher, 'model'):
-                unet_patcher_location_after = getattr(modified_unet_sampled.patcher.model, 'device', 'unknown')
-                print(f"      🧠 UNET Location: {unet_location_after} (patcher model: {unet_patcher_location_after})")
-            else:
-                print(f"      🧠 UNET Location: {unet_location_after}")
-                
-            if hasattr(modified_clip, 'patcher') and hasattr(modified_clip.patcher, 'model'):
-                clip_patcher_location_after = getattr(modified_clip.patcher.model, 'device', 'unknown')
-                print(f"      📝 CLIP Location: {clip_location_after} (patcher model: {clip_patcher_location_after})")
-            else:
-                print(f"      📝 CLIP Location: {clip_location_after}")
-            
-            # 8. COMPREHENSIVE MONITORING ANALYSIS
+            # === VAE ENCODE MONITORING SUMMARY ===
             print(f"\n" + "="*80)
-            print(f"🔍 STEP 5 CONTINUOUS MONITORING ANALYSIS")
+            print(f"🔍 VAE ENCODE MONITORING SUMMARY")
             print(f"="*80)
             
-            # Performance Analysis
-            print(f"⏱️  PERFORMANCE ANALYSIS:")
-            print(f"   Total Execution Time: {execution_time:.3f} seconds")
-            print(f"   Node Execution: WanVaceToVideo.EXECUTE_NORMALIZED")
-            print(f"   Input Dimensions: 480x832, 37 frames, batch_size=1")
-            print(f"   Monitoring Snapshots: {len(monitoring_data)} captured")
-            
-            # Continuous Memory Usage Timeline
-            print(f"\n📊 CONTINUOUS MEMORY USAGE TIMELINE:")
-            print(f"   Time Format: Elapsed Time (s) | RAM Used (GB) | GPU Allocated (GB)")
-            print(f"   {'-'*80}")
-            
-            for i, snapshot in enumerate(monitoring_data):
-                elapsed = snapshot['elapsed_time']
-                ram_gb = snapshot['ram']['used_mb'] / 1024
-                gpu_gb = snapshot['gpu']['allocated_mb'] / 1024
-                
-                # Show every snapshot with clear formatting
-                print(f"   {elapsed:6.1f}s | RAM: {ram_gb:6.2f} GB | GPU: {gpu_gb:6.2f} GB")
-                
-                # Add extra info for key moments
-                if i == 0:
-                    print(f"      📍 START - Before node execution")
-                elif i == len(monitoring_data) - 1:
-                    print(f"      📍 END - After node execution")
-                elif elapsed > 0 and elapsed < execution_time:
-                    print(f"      📍 DURING - Node execution in progress")
-            
-            # Memory Impact Analysis
-            print(f"\n💾 MEMORY IMPACT ANALYSIS:")
-            
-            # Calculate changes from start to end
-            if len(monitoring_data) >= 2:
-                start_snapshot = monitoring_data[0]
-                end_snapshot = monitoring_data[-1]
-                
-                # RAM Changes
-                ram_change_mb = end_snapshot['ram']['used_mb'] - start_snapshot['ram']['used_mb']
-                ram_available_change_mb = end_snapshot['ram']['available_mb'] - start_snapshot['ram']['available_mb']
-                ram_percent_change = end_snapshot['ram']['percent'] - start_snapshot['ram']['percent']
-                
-                print(f"   🖥️  RAM CHANGES (Start → End):")
-                print(f"      Used: {ram_change_mb:+.1f} MB ({start_snapshot['ram']['used_mb']:.1f} → {end_snapshot['ram']['used_mb']:.1f} MB)")
-                print(f"      Available: {ram_available_change_mb:+.1f} MB ({start_snapshot['ram']['available_mb']:.1f} → {end_snapshot['ram']['available_mb']:.1f} MB)")
-                print(f"      Usage: {ram_percent_change:+.1f}% ({start_snapshot['ram']['percent']:.1f}% → {end_snapshot['ram']['percent']:.1f}%)")
-                
-                # GPU Changes
-                gpu_allocated_change = end_snapshot['gpu']['allocated_mb'] - start_snapshot['gpu']['allocated_mb']
-                gpu_reserved_change = end_snapshot['gpu']['reserved_mb'] - start_snapshot['gpu']['reserved_mb']
-                
-                print(f"   🎮 GPU CHANGES (Start → End):")
-                print(f"      Allocated: {gpu_allocated_change:+.1f} MB ({start_snapshot['gpu']['allocated_mb']:.1f} → {end_snapshot['gpu']['allocated_mb']:.1f} MB)")
-                print(f"      Reserved: {gpu_reserved_change:+.1f} MB ({start_snapshot['gpu']['reserved_mb']:.1f} → {end_snapshot['gpu']['reserved_mb']:.1f} MB)")
-                print(f"      Total VRAM: {end_snapshot['gpu']['total_mb']:.1f} MB")
-            
-            # Peak Memory Analysis
-            print(f"\n📈 PEAK MEMORY ANALYSIS:")
-            if len(monitoring_data) > 0:
-                # Find peak RAM usage
-                peak_ram = max(snapshot['ram']['used_mb'] for snapshot in monitoring_data)
-                peak_ram_time = next(snapshot['elapsed_time'] for snapshot in monitoring_data if snapshot['ram']['used_mb'] == peak_ram)
-                
-                # Find peak GPU usage
-                peak_gpu = max(snapshot['gpu']['allocated_mb'] for snapshot in monitoring_data)
-                peak_gpu_time = next(snapshot['elapsed_time'] for snapshot in monitoring_data if snapshot['gpu']['allocated_mb'] == peak_gpu)
-                
-                print(f"   🖥️  RAM Peak: {peak_ram:.1f} MB at {peak_ram_time:.1f}s")
-                print(f"   🎮 GPU Peak: {peak_gpu:.1f} MB at {peak_gpu_time:.1f}s")
-                
-                # Show baseline vs peak
-                baseline_ram_gb = baseline_ram_mb / 1024
-                baseline_gpu_gb = baseline_gpu_allocated / 1024
-                peak_ram_gb = peak_ram / 1024
-                peak_gpu_gb = peak_gpu / 1024
-                
-                print(f"   📊 RAM: {baseline_ram_gb:.2f} GB → Peak: {peak_ram_gb:.2f} GB (Change: {peak_ram_gb - baseline_ram_gb:+.2f} GB)")
-                print(f"   📊 GPU: {baseline_gpu_gb:.2f} GB → Peak: {peak_gpu_gb:.2f} GB (Change: {peak_gpu_gb - baseline_gpu_gb:+.2f} GB)")
-            
-            # Model Movement Analysis
-            print(f"\n📍 MODEL MOVEMENT ANALYSIS:")
-            
-            # VAE Movement
-            if vae_location_before != vae_location_after:
-                print(f"   🎨 VAE MOVED: {vae_location_before} → {vae_location_after}")
-                if hasattr(vaeloader_7, 'patcher') and hasattr(vaeloader_7.patcher, 'model'):
-                    if vae_patcher_location != vae_patcher_location_after:
-                        print(f"      VAE Patcher Model MOVED: {vae_patcher_location} → {vae_patcher_location_after}")
-                    else:
-                        print(f"      VAE Patcher Model: NO MOVEMENT ({vae_patcher_location})")
-            else:
-                print(f"   🎨 VAE: NO MOVEMENT ({vae_location_before})")
-            
-            # UNET Movement
-            if unet_location_before != unet_location_after:
-                print(f"   🧠 UNET MOVED: {unet_location_before} → {unet_location_after}")
-                if hasattr(modified_unet_sampled, 'patcher') and hasattr(modified_unet_sampled.patcher, 'model'):
-                    if unet_patcher_location != unet_patcher_location_after:
-                        print(f"      UNET Patcher Model MOVED: {unet_patcher_location} → {unet_patcher_location_after}")
-                    else:
-                        print(f"      UNET Patcher Model: NO MOVEMENT ({unet_patcher_location})")
-            else:
-                print(f"   🧠 UNET: NO MOVEMENT ({unet_location_before})")
-            
-            # CLIP Movement
-            if clip_location_before != clip_location_after:
-                print(f"   📝 CLIP MOVED: {clip_location_before} → {clip_location_after}")
-                if hasattr(modified_clip, 'patcher') and hasattr(modified_clip.patcher, 'model'):
-                    if clip_patcher_location != clip_patcher_location_after:
-                        print(f"      CLIP Patcher Model MOVED: {clip_patcher_location} → {clip_patcher_location_after}")
-                    else:
-                        print(f"      CLIP Patcher Model: NO MOVEMENT ({clip_patcher_location})")
-            else:
-                print(f"   📝 CLIP: NO MOVEMENT ({clip_location_before})")
-            
-            # Memory Pattern Analysis
-            print(f"\n💡 MEMORY PATTERN ANALYSIS:")
-            if len(monitoring_data) >= 3:
-                print(f"   📊 Memory usage pattern during execution:")
-                
-                # Analyze memory trends
-                memory_trends = []
-                for i in range(1, len(monitoring_data)):
-                    prev = monitoring_data[i-1]
-                    curr = monitoring_data[i]
-                    
-                    ram_change = curr['ram']['used_mb'] - prev['ram']['used_mb']
-                    gpu_change = curr['gpu']['allocated_mb'] - prev['gpu']['allocated_mb']
-                    
-                    if abs(ram_change) > 10 or abs(gpu_change) > 10:  # Significant changes
-                        memory_trends.append({
-                            'time_range': f"{prev['elapsed_time']:.1f}s - {curr['elapsed_time']:.1f}s",
-                            'ram_change': ram_change,
-                            'gpu_change': gpu_change
-                        })
-                
-                if memory_trends:
-                    print(f"   📈 Significant memory changes detected:")
-                    for trend in memory_trends:
-                        ram_sign = "+" if trend['ram_change'] > 0 else ""
-                        gpu_sign = "+" if trend['gpu_change'] > 0 else ""
-                        print(f"      {trend['time_range']}: RAM {ram_sign}{trend['ram_change']:+.1f} MB, GPU {gpu_sign}{trend['gpu_change']:+.1f} MB")
-                else:
-                    print(f"   📊 Memory usage remained relatively stable during execution")
+            # Print comprehensive VAE encode monitoring summary
+            vae_encode_monitor.print_comprehensive_summary()
             
             print(f"="*80)
-            print(f"✅ Step 5 completed: WanVaceToVideo Node Execution with Continuous Monitoring")
+            print(f"✅ Step 5 completed: WanVaceToVideo Node Execution with VAE Encode Monitoring")
+            
         except Exception as e:
             print(f"❌ ERROR during WanVaceToVideo execution: {e}")
             print("🔍 Cannot proceed with latent generation")
