@@ -3480,7 +3480,7 @@ def main():
                     positive=get_value_at_index(positive_cond_tuple, 0),
                     negative=get_value_at_index(negative_cond_tuple, 0),
                     vae=monitored_vae,  # Use our monitored VAE
-                    control_video=get_value_at_index(vhs_loadvideo_1, 0),
+                    control_video=vhs_loadvideo_1,
                     reference_image=get_value_at_index(loadimage_4, 0),
                 )
                 
@@ -3511,7 +3511,7 @@ def main():
             
             # Print comprehensive VAE encode monitoring summary
             vae_encode_monitor.print_comprehensive_summary()
-            
+            control_video
             print(f"="*80)
             print(f"✅ Step 5 completed: WanVaceToVideo Node Execution with VAE Encode Monitoring")
             
