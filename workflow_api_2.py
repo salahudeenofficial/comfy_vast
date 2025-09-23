@@ -3546,6 +3546,72 @@ def main():
                             print(f"            Value: {output_item}")
                 else:
                     print(f"         📐 Single output (no length attribute)")
+                    
+                    # Handle NodeOutput objects
+                    if hasattr(wanvacetovideo_13, '__dict__'):
+                        print(f"         🔍 NodeOutput attributes:")
+                        for attr_name, attr_value in wanvacetovideo_13.__dict__.items():
+                            print(f"            {attr_name}: {type(attr_value).__name__}")
+                            if hasattr(attr_value, 'shape'):
+                                print(f"               Shape: {attr_value.shape}")
+                                print(f"               Dtype: {attr_value.dtype}")
+                                print(f"               Device: {attr_value.device}")
+                                if hasattr(attr_value, 'element_size'):
+                                    memory_mb = attr_value.numel() * attr_value.element_size() / (1024**2)
+                                    print(f"               Memory: {memory_mb:.2f} MB")
+                    
+                    # Try to access common NodeOutput properties
+                    if hasattr(wanvacetovideo_13, 'positive'):
+                        print(f"         📋 Positive conditioning:")
+                        pos_cond = wanvacetovideo_13.positive
+                        if hasattr(pos_cond, 'shape'):
+                            print(f"            Shape: {pos_cond.shape}")
+                            print(f"            Dtype: {pos_cond.dtype}")
+                            print(f"            Device: {pos_cond.device}")
+                    
+                    if hasattr(wanvacetovideo_13, 'negative'):
+                        print(f"         📋 Negative conditioning:")
+                        neg_cond = wanvacetovideo_13.negative
+                        if hasattr(neg_cond, 'shape'):
+                            print(f"            Shape: {neg_cond.shape}")
+                            print(f"            Dtype: {neg_cond.dtype}")
+                            print(f"            Device: {neg_cond.device}")
+                    
+                    if hasattr(wanvacetovideo_13, 'latent'):
+                        print(f"         📋 Latent:")
+                        latent = wanvacetovideo_13.latent
+                        if hasattr(latent, 'shape'):
+                            print(f"            Shape: {latent.shape}")
+                            print(f"            Dtype: {latent.dtype}")
+                            print(f"            Device: {latent.device}")
+                            if hasattr(latent, 'element_size'):
+                                memory_mb = latent.numel() * latent.element_size() / (1024**2)
+                                print(f"            Memory: {memory_mb:.2f} MB")
+                    
+                    if hasattr(wanvacetovideo_13, 'trim_latent'):
+                        print(f"         📋 Trim latent:")
+                        trim_latent = wanvacetovideo_13.trim_latent
+                        print(f"            Value: {trim_latent}")
+                        print(f"            Type: {type(trim_latent).__name__}")
+                    
+                    # Fallback: try to access as if it's a tuple/list
+                    try:
+                        if hasattr(wanvacetovideo_13, '__getitem__'):
+                            print(f"         🔍 Trying to access as indexed object:")
+                            for i in range(4):  # Try first 4 elements
+                                try:
+                                    item = wanvacetovideo_13[i]
+                                    print(f"            [{i}]: {type(item).__name__}")
+                                    if hasattr(item, 'shape'):
+                                        print(f"               Shape: {item.shape}")
+                                        print(f"               Dtype: {item.dtype}")
+                                        print(f"               Device: {item.device}")
+                                except (IndexError, KeyError):
+                                    break
+                    except Exception as index_error:
+                        print(f"         ⚠️  Could not access as indexed object: {index_error}")
+                    
+                    # Final fallback: check if it has shape directly
                     if hasattr(wanvacetovideo_13, 'shape'):
                         print(f"            Shape: {wanvacetovideo_13.shape}")
                         print(f"            Dtype: {wanvacetovideo_13.dtype}")
@@ -3585,33 +3651,73 @@ def main():
                             else:
                                 print(f"         ℹ️  Output[{i}] is not a tensor, skipping numpy save")
                     
-                    # Save specific outputs that are commonly used
-                    if hasattr(wanvacetovideo_13, '__len__') and len(wanvacetovideo_13) >= 3:
-                        # Save positive conditioning (output[0])
-                        if hasattr(wanvacetovideo_13[0], 'cpu'):
+                    # Handle NodeOutput objects
+                    elif hasattr(wanvacetovideo_13, '__dict__'):
+                        print(f"         🔍 Saving NodeOutput attributes...")
+                        
+                        # Save all attributes that are tensors
+                        for attr_name, attr_value in wanvacetovideo_13.__dict__.items():
+                            if hasattr(attr_value, 'cpu') and hasattr(attr_value, 'numpy'):
+                                try:
+                                    numpy_filename = f"{output_dir}/wanvacetovideo_{attr_name}_{timestamp}.npy"
+                                    np.save(numpy_filename, attr_value.cpu().numpy())
+                                    print(f"         ✅ Saved {attr_name}: {numpy_filename}")
+                                    print(f"            Shape: {attr_value.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
+                                except Exception as np_error:
+                                    print(f"         ⚠️  Could not save {attr_name} as numpy: {np_error}")
+                            else:
+                                print(f"         ℹ️  {attr_name} is not a tensor, skipping numpy save")
+                    
+                    # Try to access as indexed object and save
+                    try:
+                        if hasattr(wanvacetovideo_13, '__getitem__'):
+                            print(f"         🔍 Trying to save indexed elements...")
+                            for i in range(4):  # Try first 4 elements
+                                try:
+                                    item = wanvacetovideo_13[i]
+                                    if hasattr(item, 'cpu') and hasattr(item, 'numpy'):
+                                        numpy_filename = f"{output_dir}/wanvacetovideo_indexed_{i}_{timestamp}.npy"
+                                        np.save(numpy_filename, item.cpu().numpy())
+                                        print(f"         ✅ Saved indexed[{i}]: {numpy_filename}")
+                                        print(f"            Shape: {item.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
+                                    else:
+                                        print(f"         ℹ️  Indexed[{i}] is not a tensor, skipping numpy save")
+                                except (IndexError, KeyError):
+                                    break
+                    except Exception as index_error:
+                        print(f"         ⚠️  Could not save indexed elements: {index_error}")
+                    
+                    # Save specific outputs that are commonly used (NodeOutput properties)
+                    if hasattr(wanvacetovideo_13, 'positive'):
+                        pos_cond = wanvacetovideo_13.positive
+                        if hasattr(pos_cond, 'cpu'):
                             pos_cond_filename = f"{output_dir}/wanvacetovideo_positive_cond_{timestamp}.npy"
-                            np.save(pos_cond_filename, wanvacetovideo_13[0].cpu().numpy())
+                            np.save(pos_cond_filename, pos_cond.cpu().numpy())
                             print(f"         ✅ Saved positive conditioning: {pos_cond_filename}")
-                        
-                        # Save negative conditioning (output[1])
-                        if hasattr(wanvacetovideo_13[1], 'cpu'):
+                            print(f"            Shape: {pos_cond.shape}")
+                    
+                    if hasattr(wanvacetovideo_13, 'negative'):
+                        neg_cond = wanvacetovideo_13.negative
+                        if hasattr(neg_cond, 'cpu'):
                             neg_cond_filename = f"{output_dir}/wanvacetovideo_negative_cond_{timestamp}.npy"
-                            np.save(neg_cond_filename, wanvacetovideo_13[1].cpu().numpy())
+                            np.save(neg_cond_filename, neg_cond.cpu().numpy())
                             print(f"         ✅ Saved negative conditioning: {neg_cond_filename}")
-                        
-                        # Save latent (output[2])
-                        if hasattr(wanvacetovideo_13[2], 'cpu'):
+                            print(f"            Shape: {neg_cond.shape}")
+                    
+                    if hasattr(wanvacetovideo_13, 'latent'):
+                        latent = wanvacetovideo_13.latent
+                        if hasattr(latent, 'cpu'):
                             latent_filename = f"{output_dir}/wanvacetovideo_latent_{timestamp}.npy"
-                            np.save(latent_filename, wanvacetovideo_13[2].cpu().numpy())
+                            np.save(latent_filename, latent.cpu().numpy())
                             print(f"         ✅ Saved latent: {latent_filename}")
-                            print(f"            Shape: {wanvacetovideo_13[2].shape}")
-                        
-                        # Save trim_latent if available (output[3])
-                        if len(wanvacetovideo_13) >= 4:
-                            trim_latent_filename = f"{output_dir}/wanvacetovideo_trim_latent_{timestamp}.npy"
-                            np.save(trim_latent_filename, np.array([wanvacetovideo_13[3]]))
-                            print(f"         ✅ Saved trim_latent: {trim_latent_filename}")
-                            print(f"            Value: {wanvacetovideo_13[3]}")
+                            print(f"            Shape: {latent.shape}")
+                    
+                    if hasattr(wanvacetovideo_13, 'trim_latent'):
+                        trim_latent = wanvacetovideo_13.trim_latent
+                        trim_latent_filename = f"{output_dir}/wanvacetovideo_trim_latent_{timestamp}.npy"
+                        np.save(trim_latent_filename, np.array([trim_latent]))
+                        print(f"         ✅ Saved trim_latent: {trim_latent_filename}")
+                        print(f"            Value: {trim_latent}")
                     
                 except Exception as save_error:
                     print(f"         ❌ Error saving WanVaceToVideo output: {save_error}")
