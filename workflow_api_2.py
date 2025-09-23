@@ -3591,6 +3591,37 @@ def main():
                                                 print(f"               Stats: Could not compute ({stats_error})")
                                     else:
                                         print(f"               Value: {arg_item}")
+                                        
+                                        # Deep analysis for complex structures
+                                        if isinstance(arg_item, (list, tuple)):
+                                            print(f"               📋 Deep analysis of {type(arg_item).__name__}:")
+                                            print(f"                  Length: {len(arg_item)}")
+                                            for j, sub_item in enumerate(arg_item):
+                                                print(f"                  [{j}]: {type(sub_item).__name__}")
+                                                if hasattr(sub_item, 'shape'):
+                                                    print(f"                     Shape: {sub_item.shape}")
+                                                    print(f"                     Dtype: {sub_item.dtype}")
+                                                    print(f"                     Device: {sub_item.device}")
+                                                    if hasattr(sub_item, 'element_size'):
+                                                        memory_mb = sub_item.numel() * sub_item.element_size() / (1024**2)
+                                                        print(f"                     Memory: {memory_mb:.2f} MB")
+                                                else:
+                                                    print(f"                     Value: {sub_item}")
+                                        
+                                        elif isinstance(arg_item, dict):
+                                            print(f"               📋 Deep analysis of dict:")
+                                            print(f"                  Keys: {list(arg_item.keys())}")
+                                            for key, value in arg_item.items():
+                                                print(f"                  {key}: {type(value).__name__}")
+                                                if hasattr(value, 'shape'):
+                                                    print(f"                     Shape: {value.shape}")
+                                                    print(f"                     Dtype: {value.dtype}")
+                                                    print(f"                     Device: {value.device}")
+                                                    if hasattr(value, 'element_size'):
+                                                        memory_mb = value.numel() * value.element_size() / (1024**2)
+                                                        print(f"                     Memory: {memory_mb:.2f} MB")
+                                                else:
+                                                    print(f"                     Value: {value}")
                     
                     # Try to access common NodeOutput properties
                     if hasattr(wanvacetovideo_13, 'positive'):
@@ -3644,7 +3675,7 @@ def main():
                         print(f"         ⚠️  Could not access as indexed object: {index_error}")
                     
                     # Final fallback: check if it has shape directly
-                    if hasattr(wanvacetovideo_13, 'shape'):
+                if hasattr(wanvacetovideo_13, 'shape'):
                         print(f"            Shape: {wanvacetovideo_13.shape}")
                         print(f"            Dtype: {wanvacetovideo_13.dtype}")
                         print(f"            Device: {wanvacetovideo_13.device}")
@@ -3716,30 +3747,50 @@ def main():
                                         except Exception as np_error:
                                             print(f"         ⚠️  Could not save args[{i}] as numpy: {np_error}")
                                     else:
-                                        print(f"         ℹ️  args[{i}] is not a tensor, skipping numpy save")
+                                        print(f"         ℹ️  args[{i}] is not a tensor, trying deep save...")
                                         
-                                        # Try to save non-tensor args as text or other formats
+                                        # Try to save nested tensors in complex structures
                                         try:
-                                            if isinstance(arg_item, (int, float, str)):
+                                            if isinstance(arg_item, (list, tuple)):
+                                                print(f"         🔍 Saving nested tensors in list/tuple...")
+                                                for j, sub_item in enumerate(arg_item):
+                                                    if hasattr(sub_item, 'cpu') and hasattr(sub_item, 'numpy'):
+                                                        numpy_filename = f"{output_dir}/wanvacetovideo_args_{i}_{j}_{timestamp}.npy"
+                                                        np.save(numpy_filename, sub_item.cpu().numpy())
+                                                        print(f"         ✅ Saved args[{i}][{j}]: {numpy_filename}")
+                                                        print(f"            Shape: {sub_item.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
+                                                    else:
+                                                        print(f"         ℹ️  args[{i}][{j}] is not a tensor")
+                                            
+                                            elif isinstance(arg_item, dict):
+                                                print(f"         🔍 Saving nested tensors in dict...")
+                                                for key, value in arg_item.items():
+                                                    if hasattr(value, 'cpu') and hasattr(value, 'numpy'):
+                                                        numpy_filename = f"{output_dir}/wanvacetovideo_args_{i}_{key}_{timestamp}.npy"
+                                                        np.save(numpy_filename, value.cpu().numpy())
+                                                        print(f"         ✅ Saved args[{i}][{key}]: {numpy_filename}")
+                                                        print(f"            Shape: {value.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
+                                                    else:
+                                                        print(f"         ℹ️  args[{i}][{key}] is not a tensor")
+                                            
+                                            # Fallback: save as text for simple types
+                                            elif isinstance(arg_item, (int, float, str)):
                                                 text_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.txt"
                                                 with open(text_filename, 'w') as f:
                                                     f.write(str(arg_item))
                                                 print(f"         ✅ Saved args[{i}] as text: {text_filename}")
                                                 print(f"            Value: {arg_item}")
-                                            elif isinstance(arg_item, (list, tuple)):
+                                                
+                                        except Exception as deep_save_error:
+                                            print(f"         ⚠️  Could not save args[{i}] deeply: {deep_save_error}")
+                                            # Final fallback: save as text
+                                            try:
                                                 text_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.txt"
                                                 with open(text_filename, 'w') as f:
                                                     f.write(str(arg_item))
-                                                print(f"         ✅ Saved args[{i}] as text: {text_filename}")
-                                                print(f"            Length: {len(arg_item)}")
-                                            elif isinstance(arg_item, dict):
-                                                text_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.txt"
-                                                with open(text_filename, 'w') as f:
-                                                    f.write(str(arg_item))
-                                                print(f"         ✅ Saved args[{i}] as text: {text_filename}")
-                                                print(f"            Keys: {list(arg_item.keys())}")
-                                        except Exception as text_error:
-                                            print(f"         ⚠️  Could not save args[{i}] as text: {text_error}")
+                                                print(f"         ✅ Saved args[{i}] as text (fallback): {text_filename}")
+                                            except Exception as text_error:
+                                                print(f"         ❌ Could not save args[{i}] at all: {text_error}")
                     
                     # Try to access as indexed object and save
                     try:
@@ -3905,7 +3956,7 @@ def main():
             import traceback
             traceback.print_exc()
         
-        # === STEP 6 END: K-SAMPLER ===
+            # === STEP 6 END: K-SAMPLER ===
         print("="*80)
         print("✅ Step 6 completed: K-Sampler")
 
