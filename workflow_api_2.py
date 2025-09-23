@@ -3587,7 +3587,6 @@ def main():
         # Save the K-Sampler output
         print(f"\n💾 SAVING K-SAMPLER OUTPUT...")
         try:
-            import torch
             import os
             from datetime import datetime
             
@@ -3617,7 +3616,6 @@ def main():
             # Also save as numpy for easier inspection
             if latent_samples is not None and hasattr(latent_samples, 'cpu'):
                 try:
-                    import numpy as np
                     numpy_filename = f"{output_dir}/ksampler_latent_{timestamp}.npy"
                     np.save(numpy_filename, latent_samples.cpu().numpy())
                     print(f"   ✅ Saved as numpy array: {numpy_filename}")
