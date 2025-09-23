@@ -3559,6 +3559,38 @@ def main():
                                 if hasattr(attr_value, 'element_size'):
                                     memory_mb = attr_value.numel() * attr_value.element_size() / (1024**2)
                                     print(f"               Memory: {memory_mb:.2f} MB")
+                        
+                        # Handle args attribute specifically (contains the actual outputs)
+                        if hasattr(wanvacetovideo_13, 'args') and wanvacetovideo_13.args:
+                            print(f"         📋 NodeOutput.args analysis:")
+                            args = wanvacetovideo_13.args
+                            print(f"            Args type: {type(args).__name__}")
+                            print(f"            Args length: {len(args) if hasattr(args, '__len__') else 'N/A'}")
+                            
+                            if hasattr(args, '__len__'):
+                                for i, arg_item in enumerate(args):
+                                    print(f"            Args[{i}]:")
+                                    print(f"               Type: {type(arg_item).__name__}")
+                                    
+                                    if hasattr(arg_item, 'shape'):
+                                        print(f"               Shape: {arg_item.shape}")
+                                        print(f"               Dtype: {arg_item.dtype}")
+                                        print(f"               Device: {arg_item.device}")
+                                        if hasattr(arg_item, 'element_size'):
+                                            memory_mb = arg_item.numel() * arg_item.element_size() / (1024**2)
+                                            print(f"               Memory: {memory_mb:.2f} MB")
+                                        
+                                        # Print tensor statistics
+                                        if hasattr(arg_item, 'min') and hasattr(arg_item, 'max'):
+                                            try:
+                                                min_val = arg_item.min().item()
+                                                max_val = arg_item.max().item()
+                                                mean_val = arg_item.mean().item()
+                                                print(f"               Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                            except Exception as stats_error:
+                                                print(f"               Stats: Could not compute ({stats_error})")
+                                    else:
+                                        print(f"               Value: {arg_item}")
                     
                     # Try to access common NodeOutput properties
                     if hasattr(wanvacetovideo_13, 'positive'):
@@ -3667,6 +3699,47 @@ def main():
                                     print(f"         ⚠️  Could not save {attr_name} as numpy: {np_error}")
                             else:
                                 print(f"         ℹ️  {attr_name} is not a tensor, skipping numpy save")
+                        
+                        # Handle args attribute specifically (contains the actual outputs)
+                        if hasattr(wanvacetovideo_13, 'args') and wanvacetovideo_13.args:
+                            print(f"         🔍 Saving NodeOutput.args elements...")
+                            args = wanvacetovideo_13.args
+                            
+                            if hasattr(args, '__len__'):
+                                for i, arg_item in enumerate(args):
+                                    if hasattr(arg_item, 'cpu') and hasattr(arg_item, 'numpy'):
+                                        try:
+                                            numpy_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.npy"
+                                            np.save(numpy_filename, arg_item.cpu().numpy())
+                                            print(f"         ✅ Saved args[{i}]: {numpy_filename}")
+                                            print(f"            Shape: {arg_item.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
+                                        except Exception as np_error:
+                                            print(f"         ⚠️  Could not save args[{i}] as numpy: {np_error}")
+                                    else:
+                                        print(f"         ℹ️  args[{i}] is not a tensor, skipping numpy save")
+                                        
+                                        # Try to save non-tensor args as text or other formats
+                                        try:
+                                            if isinstance(arg_item, (int, float, str)):
+                                                text_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.txt"
+                                                with open(text_filename, 'w') as f:
+                                                    f.write(str(arg_item))
+                                                print(f"         ✅ Saved args[{i}] as text: {text_filename}")
+                                                print(f"            Value: {arg_item}")
+                                            elif isinstance(arg_item, (list, tuple)):
+                                                text_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.txt"
+                                                with open(text_filename, 'w') as f:
+                                                    f.write(str(arg_item))
+                                                print(f"         ✅ Saved args[{i}] as text: {text_filename}")
+                                                print(f"            Length: {len(arg_item)}")
+                                            elif isinstance(arg_item, dict):
+                                                text_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.txt"
+                                                with open(text_filename, 'w') as f:
+                                                    f.write(str(arg_item))
+                                                print(f"         ✅ Saved args[{i}] as text: {text_filename}")
+                                                print(f"            Keys: {list(arg_item.keys())}")
+                                        except Exception as text_error:
+                                            print(f"         ⚠️  Could not save args[{i}] as text: {text_error}")
                     
                     # Try to access as indexed object and save
                     try:
