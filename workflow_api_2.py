@@ -3551,7 +3551,7 @@ def main():
         sampler_name="ddim",
         scheduler="normal",
         denoise=1,
-        model=get_value_at_index(model_sampling, 0),
+        model=modified_unet_sampled,
         positive=get_value_at_index(wanvacetovideo_13, 0),
         negative=get_value_at_index(wanvacetovideo_13, 1),
         latent_image=get_value_at_index(wanvacetovideo_13, 2),
