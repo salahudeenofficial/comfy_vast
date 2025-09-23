@@ -2812,6 +2812,30 @@ def main():
         print(f"   Video file exists: {'✅ YES' if video_file_exists else '❌ NO'}")
         print(f"   Image file exists: {'✅ YES' if image_file_exists else '❌ NO'}")
         
+        # If video file doesn't exist in current directory, try to find it using find_safu_files
+        if not video_file_exists:
+            print("   🔍 Video file not found in current directory, searching for safu files...")
+            safu_files = find_safu_files()
+            if "mp4" in safu_files:
+                video_file = safu_files["mp4"]
+                video_file_exists = os.path.exists(video_file)
+                print(f"   ✅ Found video file: {video_file}")
+                print(f"   Video file exists: {'✅ YES' if video_file_exists else '❌ NO'}")
+            else:
+                print("   ❌ No safu.mp4 found in any location")
+        
+        # If image file doesn't exist in current directory, try to find it using find_safu_files
+        if not image_file_exists:
+            print("   🔍 Image file not found in current directory, searching for safu files...")
+            safu_files = find_safu_files()
+            if "jpg" in safu_files:
+                image_file = safu_files["jpg"]
+                image_file_exists = os.path.exists(image_file)
+                print(f"   ✅ Found image file: {image_file}")
+                print(f"   Image file exists: {'✅ YES' if image_file_exists else '❌ NO'}")
+            else:
+                print("   ❌ No safu.jpg found in any location")
+        
         # List files in current directory and input directory for debugging
         try:
             current_files = os.listdir('.')
@@ -3384,7 +3408,7 @@ def main():
                 'positive_conditioning': 'positive_cond_tuple' in locals(),
                 'negative_conditioning': 'negative_cond_tuple' in locals(), 
                 'vae': 'vaeloader_7' in locals(),
-                'control_video': '_vhs_loadvideo_1' in locals(),
+                'control_video': 'vhs_loadvideo_1' in locals(),
                 'reference_image': 'loadimage_4' in locals()
             }
             
@@ -3399,7 +3423,7 @@ def main():
                 print(f"\n❌ CANNOT PROCEED: Missing inputs: {', '.join(missing_inputs)}")
                 print("🔍 Please ensure all previous steps completed successfully")
                 return
-            _
+            
             print(f"\n   ✅ All required inputs available - proceeding with VAE encode monitoring")
             
             # === VAE ENCODE MONITORING SETUP ===
@@ -3480,7 +3504,7 @@ def main():
                     positive=get_value_at_index(positive_cond_tuple, 0),
                     negative=get_value_at_index(negative_cond_tuple, 0),
                     vae=monitored_vae,  # Use our monitored VAE
-                    control_video=vhs_loadvideo_1,
+                    control_video=get_value_at_index(vhs_loadvideo_1, 0),
                     reference_image=get_value_at_index(loadimage_4, 0),
                 )
                 
@@ -3511,7 +3535,6 @@ def main():
             
             # Print comprehensive VAE encode monitoring summary
             vae_encode_monitor.print_comprehensive_summary()
-            control_video
             print(f"="*80)
             print(f"✅ Step 5 completed: WanVaceToVideo Node Execution with VAE Encode Monitoring")
             
