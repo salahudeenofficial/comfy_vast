@@ -3520,6 +3520,7 @@ def main():
             print("🔍 Cannot proceed with latent generation")
             return
         # === STEP 5 END: INITIAL LATENT GENERATION ===
+        ksampler = KSampler()
         ksampler_14 = ksampler.sample(
         seed=random.randint(1, 2**64),
         steps=4,
