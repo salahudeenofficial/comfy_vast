@@ -3587,7 +3587,6 @@ def main():
         # Save the K-Sampler output
         print(f"\n💾 SAVING K-SAMPLER OUTPUT...")
         try:
-            import os
             from datetime import datetime
             
             # Create output directory if it doesn't exist
