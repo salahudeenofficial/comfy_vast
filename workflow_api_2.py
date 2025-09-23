@@ -3509,15 +3509,114 @@ def main():
                 )
                 
                 print("      ✅ WanVaceToVideo node executed successfully!")
-                print(f"      📊 Output type: {type(wanvacetovideo_13).__name__}")
                 
-                # Show output details if available
-                if hasattr(wanvacetovideo_13, 'shape'):
-                    print(f"      📐 Output shape: {wanvacetovideo_13.shape}")
-                elif hasattr(wanvacetovideo_13, '__len__'):
-                    print(f"      📐 Output length: {len(wanvacetovideo_13)}")
-                    if len(wanvacetovideo_13) > 0 and hasattr(wanvacetovideo_13[0], 'shape'):
-                        print(f"      📐 First output shape: {wanvacetovideo_13[0].shape}")
+                # === DETAILED WANVACETOVIDEO OUTPUT ANALYSIS ===
+                print(f"\n      🔍 DETAILED WANVACETOVIDEO OUTPUT ANALYSIS:")
+                print(f"         📊 Output type: {type(wanvacetovideo_13).__name__}")
+                
+                # Analyze the output structure
+                if hasattr(wanvacetovideo_13, '__len__'):
+                    print(f"         📐 Output length: {len(wanvacetovideo_13)}")
+                    
+                    # Analyze each output element
+                    for i, output_item in enumerate(wanvacetovideo_13):
+                        print(f"         📋 Output[{i}]:")
+                        print(f"            Type: {type(output_item).__name__}")
+                        
+                        if hasattr(output_item, 'shape'):
+                            print(f"            Shape: {output_item.shape}")
+                            print(f"            Dtype: {output_item.dtype}")
+                            print(f"            Device: {output_item.device}")
+                            
+                            # Calculate memory usage
+                            if hasattr(output_item, 'element_size'):
+                                memory_mb = output_item.numel() * output_item.element_size() / (1024**2)
+                                print(f"            Memory: {memory_mb:.2f} MB")
+                            
+                            # Print tensor statistics
+                            if hasattr(output_item, 'min') and hasattr(output_item, 'max'):
+                                try:
+                                    min_val = output_item.min().item()
+                                    max_val = output_item.max().item()
+                                    mean_val = output_item.mean().item()
+                                    print(f"            Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                except Exception as stats_error:
+                                    print(f"            Stats: Could not compute ({stats_error})")
+                        else:
+                            print(f"            Value: {output_item}")
+                else:
+                    print(f"         📐 Single output (no length attribute)")
+                    if hasattr(wanvacetovideo_13, 'shape'):
+                        print(f"            Shape: {wanvacetovideo_13.shape}")
+                        print(f"            Dtype: {wanvacetovideo_13.dtype}")
+                        print(f"            Device: {wanvacetovideo_13.device}")
+                
+                # === SAVE WANVACETOVIDEO OUTPUT ===
+                print(f"\n      💾 SAVING WANVACETOVIDEO OUTPUT...")
+                try:
+                    from datetime import datetime
+                    
+                    # Create output directory if it doesn't exist
+                    output_dir = "./output"
+                    if not os.path.exists(output_dir):
+                        os.makedirs(output_dir)
+                        print(f"         📁 Created output directory: {output_dir}")
+                    
+                    # Generate timestamp for unique filenames
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    
+                    # Save the complete WanVaceToVideo output
+                    wanvacetovideo_filename = f"{output_dir}/wanvacetovideo_output_{timestamp}.pt"
+                    torch.save(wanvacetovideo_13, wanvacetovideo_filename)
+                    print(f"         ✅ Saved complete output: {wanvacetovideo_filename}")
+                    print(f"            Size: {os.path.getsize(wanvacetovideo_filename) / (1024**2):.2f} MB")
+                    
+                    # Save individual output elements as numpy files
+                    if hasattr(wanvacetovideo_13, '__len__'):
+                        for i, output_item in enumerate(wanvacetovideo_13):
+                            if hasattr(output_item, 'cpu') and hasattr(output_item, 'numpy'):
+                                try:
+                                    numpy_filename = f"{output_dir}/wanvacetovideo_output_{i}_{timestamp}.npy"
+                                    np.save(numpy_filename, output_item.cpu().numpy())
+                                    print(f"         ✅ Saved output[{i}] as numpy: {numpy_filename}")
+                                    print(f"            Shape: {output_item.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
+                                except Exception as np_error:
+                                    print(f"         ⚠️  Could not save output[{i}] as numpy: {np_error}")
+                            else:
+                                print(f"         ℹ️  Output[{i}] is not a tensor, skipping numpy save")
+                    
+                    # Save specific outputs that are commonly used
+                    if hasattr(wanvacetovideo_13, '__len__') and len(wanvacetovideo_13) >= 3:
+                        # Save positive conditioning (output[0])
+                        if hasattr(wanvacetovideo_13[0], 'cpu'):
+                            pos_cond_filename = f"{output_dir}/wanvacetovideo_positive_cond_{timestamp}.npy"
+                            np.save(pos_cond_filename, wanvacetovideo_13[0].cpu().numpy())
+                            print(f"         ✅ Saved positive conditioning: {pos_cond_filename}")
+                        
+                        # Save negative conditioning (output[1])
+                        if hasattr(wanvacetovideo_13[1], 'cpu'):
+                            neg_cond_filename = f"{output_dir}/wanvacetovideo_negative_cond_{timestamp}.npy"
+                            np.save(neg_cond_filename, wanvacetovideo_13[1].cpu().numpy())
+                            print(f"         ✅ Saved negative conditioning: {neg_cond_filename}")
+                        
+                        # Save latent (output[2])
+                        if hasattr(wanvacetovideo_13[2], 'cpu'):
+                            latent_filename = f"{output_dir}/wanvacetovideo_latent_{timestamp}.npy"
+                            np.save(latent_filename, wanvacetovideo_13[2].cpu().numpy())
+                            print(f"         ✅ Saved latent: {latent_filename}")
+                            print(f"            Shape: {wanvacetovideo_13[2].shape}")
+                        
+                        # Save trim_latent if available (output[3])
+                        if len(wanvacetovideo_13) >= 4:
+                            trim_latent_filename = f"{output_dir}/wanvacetovideo_trim_latent_{timestamp}.npy"
+                            np.save(trim_latent_filename, np.array([wanvacetovideo_13[3]]))
+                            print(f"         ✅ Saved trim_latent: {trim_latent_filename}")
+                            print(f"            Value: {wanvacetovideo_13[3]}")
+                    
+                except Exception as save_error:
+                    print(f"         ❌ Error saving WanVaceToVideo output: {save_error}")
+                    import traceback
+                    traceback.print_exc()
                 
             except ImportError:
                 print("      ❌ WanVaceToVideo node not available")
