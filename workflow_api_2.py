@@ -3384,7 +3384,7 @@ def main():
                 'positive_conditioning': 'positive_cond_tuple' in locals(),
                 'negative_conditioning': 'negative_cond_tuple' in locals(), 
                 'vae': 'vaeloader_7' in locals(),
-                'control_video': 'vhs_loadvideo_1' in locals(),
+                'control_video': '_vhs_loadvideo_1' in locals(),
                 'reference_image': 'loadimage_4' in locals()
             }
             
@@ -3399,7 +3399,7 @@ def main():
                 print(f"\n❌ CANNOT PROCEED: Missing inputs: {', '.join(missing_inputs)}")
                 print("🔍 Please ensure all previous steps completed successfully")
                 return
-            
+            _
             print(f"\n   ✅ All required inputs available - proceeding with VAE encode monitoring")
             
             # === VAE ENCODE MONITORING SETUP ===
@@ -3528,7 +3528,7 @@ def main():
         sampler_name="ddim",
         scheduler="normal",
         denoise=1,
-        model=get_value_at_index(modelsamplingsd3_15, 0),
+        model=get_value_at_index(model_sampling, 0),
         positive=get_value_at_index(wanvacetovideo_13, 0),
         negative=get_value_at_index(wanvacetovideo_13, 1),
         latent_image=get_value_at_index(wanvacetovideo_13, 2),
