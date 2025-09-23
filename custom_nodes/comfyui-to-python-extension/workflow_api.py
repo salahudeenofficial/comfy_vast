@@ -127,7 +127,7 @@ def import_custom_nodes() -> None:
             execution.PromptQueue(server_instance)
 
             # Initializing custom nodes
-            loop.run_until_complete(init_extra_nodes())
+            init_extra_nodes()
         finally:
             # Restore original working directory and sys.path
             os.chdir(original_cwd)
@@ -136,15 +136,15 @@ def import_custom_nodes() -> None:
 
 
 from nodes import (
-    NODE_CLASS_MAPPINGS,
-    CLIPTextEncode,
-    UNETLoader,
-    CLIPLoader,
-    LoraLoader,
-    KSampler,
     VAEDecode,
     VAELoader,
     LoadImage,
+    CLIPLoader,
+    LoraLoaderModelOnly,
+    CLIPTextEncode,
+    NODE_CLASS_MAPPINGS,
+    KSampler,
+    LoraLoader,
 )
 
 
@@ -153,44 +153,47 @@ def main():
     with torch.inference_mode():
         vhs_loadvideo = NODE_CLASS_MAPPINGS["VHS_LoadVideo"]()
         vhs_loadvideo_1 = vhs_loadvideo.load_video(
-            video="safu.mp4",
-            force_rate=0,
-            custom_width=0,
-            custom_height=0,
-            frame_load_cap=0,
+            video="safu1.mp4",
+            force_rate=19,
+            custom_width=480,
+            custom_height=832,
+            frame_load_cap=37,
             skip_first_frames=0,
-            select_every_nth=1,
+            select_every_nth=2,
             format="Wan",
         )
 
         loadimage = LoadImage()
-        loadimage_4 = loadimage.load_image(image="safu.jpg")
+        loadimage_4 = loadimage.load_image(image="download (3).jpeg")
 
-        vaeloader = VAELoader()
-        vaeloader_7 = vaeloader.load_vae(vae_name="vae.safetensors")
-
-        unetloader = UNETLoader()
-        unetloader_27 = unetloader.load_unet(
-            unet_name="model.safetensors", weight_dtype="default"
+        unetloadergguf = NODE_CLASS_MAPPINGS["UnetLoaderGGUF"]()
+        unetloadergguf_5 = unetloadergguf.load_unet(
+            unet_name="Wan2.1_14B_VACE-Q6_K.gguf"
         )
 
+        vaeloader = VAELoader()
+        vaeloader_7 = vaeloader.load_vae(vae_name="wan_2.1_vae.safetensors")
+
+      
         cliploader = CLIPLoader()
         cliploader_23 = cliploader.load_clip(
-            clip_name="clip.safetensors", type="wan", device="default"
+            clip_name="umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+            type="wan",
+            device="default",
         )
 
         loraloader = LoraLoader()
         loraloader_24 = loraloader.load_lora(
-            lora_name="lora.safetensors",
+            lora_name="Wan21_CausVid_14B_T2V_lora_rank32.safetensors",
             strength_model=0.5000000000000001,
             strength_clip=1,
-            model=get_value_at_index(unetloader_27, 0),
+            model=get_value_at_index(unetloadergguf_5, 0),
             clip=get_value_at_index(cliploader_23, 0),
         )
 
         cliptextencode = CLIPTextEncode()
         cliptextencode_10 = cliptextencode.encode(
-            text="a cinematic video.", clip=get_value_at_index(loraloader_24, 1)
+            text="", clip=get_value_at_index(loraloader_24, 1)
         )
 
         cliptextencode_11 = cliptextencode.encode(
@@ -198,7 +201,42 @@ def main():
             clip=get_value_at_index(loraloader_24, 1),
         )
 
+        aio_preprocessor = NODE_CLASS_MAPPINGS["AIO_Preprocessor"]()
+        aio_preprocessor_27 = aio_preprocessor.execute(
+            preprocessor="DWPreprocessor",
+            resolution=512,
+            image=get_value_at_index(vhs_loadvideo_1, 0),
+        )
+
+        depthanythingpreprocessor = NODE_CLASS_MAPPINGS["DepthAnythingPreprocessor"]()
+        depthanythingpreprocessor_30 = depthanythingpreprocessor.execute(
+            ckpt_name="depth_anything_vitl14.pth",
+            resolution=512,
+            image=get_value_at_index(vhs_loadvideo_1, 0),
+        )
+
+        imageblend = NODE_CLASS_MAPPINGS["ImageBlend"]()
+        imageblend_31 = imageblend.blend_images(
+            blend_factor=0.5,
+            blend_mode="normal",
+            image1=get_value_at_index(aio_preprocessor_27, 0),
+            image2=get_value_at_index(depthanythingpreprocessor_30, 0),
+        )
+
         wanvacetovideo = NODE_CLASS_MAPPINGS["WanVaceToVideo"]()
+        wanvacetovideo_13 = wanvacetovideo.encode(
+            width=480,
+            height=832,
+            length=37,
+            batch_size=1,
+            strength=1,
+            positive=get_value_at_index(cliptextencode_10, 0),
+            negative=get_value_at_index(cliptextencode_11, 0),
+            vae=get_value_at_index(vaeloader_7, 0),
+            control_video=get_value_at_index(imageblend_31, 0),
+            reference_image=get_value_at_index(loadimage_4, 0),
+        )
+
         modelsamplingsd3 = NODE_CLASS_MAPPINGS["ModelSamplingSD3"]()
         ksampler = KSampler()
         trimvideolatent = NODE_CLASS_MAPPINGS["TrimVideoLatent"]()
@@ -206,19 +244,6 @@ def main():
         vhs_videocombine = NODE_CLASS_MAPPINGS["VHS_VideoCombine"]()
 
         for q in range(10):
-            wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
-                width=480,
-                height=832,
-                length=37,
-                batch_size=1,
-                strength=1,
-                positive=get_value_at_index(cliptextencode_10, 0),
-                negative=get_value_at_index(cliptextencode_11, 0),
-                vae=get_value_at_index(vaeloader_7, 0),
-                control_video=get_value_at_index(vhs_loadvideo_1, 0),
-                reference_image=get_value_at_index(loadimage_4, 0),
-            )
-
             modelsamplingsd3_15 = modelsamplingsd3.patch(
                 shift=8.000000000000002, model=get_value_at_index(loraloader_24, 0)
             )
@@ -236,7 +261,7 @@ def main():
                 latent_image=get_value_at_index(wanvacetovideo_13, 2),
             )
 
-            trimvideolatent_16 = trimvideolatent.EXECUTE_NORMALIZED(
+            trimvideolatent_16 = trimvideolatent.op(
                 trim_amount=get_value_at_index(wanvacetovideo_13, 3),
                 samples=get_value_at_index(ksampler_14, 0),
             )
@@ -249,7 +274,7 @@ def main():
             vhs_videocombine_19 = vhs_videocombine.combine_video(
                 frame_rate=19,
                 loop_count=0,
-                filename_prefix="AnimateDiff",
+                filename_prefix="soln1",
                 format="video/h264-mp4",
                 pix_fmt="yuv420p",
                 crf=19,
@@ -258,6 +283,20 @@ def main():
                 pingpong=False,
                 save_output=True,
                 images=get_value_at_index(vaedecode_18, 0),
+            )
+
+            vhs_videocombine_22 = vhs_videocombine.combine_video(
+                frame_rate=19,
+                loop_count=0,
+                filename_prefix="AnimateDiff",
+                format="video/h264-mp4",
+                pix_fmt="yuv420p",
+                crf=19,
+                save_metadata=True,
+                trim_to_audio=False,
+                pingpong=False,
+                save_output=False,
+                images=get_value_at_index(imageblend_31, 0),
             )
 
 
