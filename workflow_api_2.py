@@ -3556,7 +3556,81 @@ def main():
         negative=get_value_at_index(wanvacetovideo_13, 1),
         latent_image=get_value_at_index(wanvacetovideo_13, 2),
         )
-            # === STEP 6 END: K-SAMPLER ===
+        
+        # === K-SAMPLER OUTPUT ANALYSIS AND SAVING ===
+        print("\n🔍 ANALYZING K-SAMPLER OUTPUT...")
+        
+        # Extract the latent samples from the K-Sampler output
+        latent_samples = get_value_at_index(ksampler_14, 0)
+        
+        # Print detailed information about the output
+        print(f"   📊 K-Sampler Output Analysis:")
+        print(f"      Output type: {type(ksampler_14)}")
+        print(f"      Output length: {len(ksampler_14) if hasattr(ksampler_14, '__len__') else 'N/A'}")
+        
+        if latent_samples is not None:
+            print(f"      Latent samples type: {type(latent_samples)}")
+            if hasattr(latent_samples, 'shape'):
+                print(f"      Latent samples shape: {latent_samples.shape}")
+                print(f"      Latent samples dtype: {latent_samples.dtype}")
+                print(f"      Latent samples device: {latent_samples.device}")
+                
+                # Calculate memory usage
+                if hasattr(latent_samples, 'element_size'):
+                    memory_mb = latent_samples.numel() * latent_samples.element_size() / (1024**2)
+                    print(f"      Memory usage: {memory_mb:.2f} MB")
+            else:
+                print(f"      Latent samples: {latent_samples}")
+        else:
+            print(f"      ❌ No latent samples found in K-Sampler output")
+        
+        # Save the K-Sampler output
+        print(f"\n💾 SAVING K-SAMPLER OUTPUT...")
+        try:
+            import torch
+            import os
+            from datetime import datetime
+            
+            # Create output directory if it doesn't exist
+            output_dir = "./output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+                print(f"   📁 Created output directory: {output_dir}")
+            
+            # Generate timestamp for unique filenames
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Save the latent samples
+            if latent_samples is not None and hasattr(latent_samples, 'shape'):
+                latent_filename = f"{output_dir}/ksampler_latent_{timestamp}.pt"
+                torch.save(latent_samples, latent_filename)
+                print(f"   ✅ Saved latent samples: {latent_filename}")
+                print(f"      Shape: {latent_samples.shape}")
+                print(f"      Size: {os.path.getsize(latent_filename) / (1024**2):.2f} MB")
+            
+            # Save the complete K-Sampler output
+            ksampler_filename = f"{output_dir}/ksampler_output_{timestamp}.pt"
+            torch.save(ksampler_14, ksampler_filename)
+            print(f"   ✅ Saved complete K-Sampler output: {ksampler_filename}")
+            print(f"      Size: {os.path.getsize(ksampler_filename) / (1024**2):.2f} MB")
+            
+            # Also save as numpy for easier inspection
+            if latent_samples is not None and hasattr(latent_samples, 'cpu'):
+                try:
+                    import numpy as np
+                    numpy_filename = f"{output_dir}/ksampler_latent_{timestamp}.npy"
+                    np.save(numpy_filename, latent_samples.cpu().numpy())
+                    print(f"   ✅ Saved as numpy array: {numpy_filename}")
+                    print(f"      Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
+                except Exception as np_error:
+                    print(f"   ⚠️  Could not save as numpy: {np_error}")
+            
+        except Exception as save_error:
+            print(f"   ❌ Error saving K-Sampler output: {save_error}")
+            import traceback
+            traceback.print_exc()
+        
+        # === STEP 6 END: K-SAMPLER ===
         print("="*80)
         print("✅ Step 6 completed: K-Sampler")
 
