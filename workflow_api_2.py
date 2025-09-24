@@ -3485,7 +3485,37 @@ def main():
             
             print(f"\n   📋 Positive Conditioning (K-Sampler input):")
             print(f"      Type: {type(positive_cond).__name__}")
-            if hasattr(positive_cond, 'shape'):
+            
+            # Handle complex nested structures
+            if isinstance(positive_cond, list) and len(positive_cond) > 0:
+                first_item = positive_cond[0]
+                print(f"      List length: {len(positive_cond)}")
+                print(f"      First item type: {type(first_item).__name__}")
+                
+                if hasattr(first_item, 'shape'):
+                    print(f"      Shape: {first_item.shape}")
+                    print(f"      Dtype: {first_item.dtype}")
+                    print(f"      Device: {first_item.device}")
+                    if hasattr(first_item, 'element_size'):
+                        memory_mb = first_item.numel() * first_item.element_size() / (1024**2)
+                        print(f"      Memory: {memory_mb:.2f} MB")
+                    # Value glimpse
+                    try:
+                        if hasattr(first_item, 'cpu'):
+                            cpu_tensor = first_item.cpu()
+                            min_val = cpu_tensor.min().item()
+                            max_val = cpu_tensor.max().item()
+                            mean_val = cpu_tensor.mean().item()
+                            print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                            # Show first few values
+                            flat_tensor = cpu_tensor.flatten()
+                            first_values = flat_tensor[:5].tolist()
+                            print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                    except Exception as val_error:
+                        print(f"      Value glimpse: Could not compute ({val_error})")
+                else:
+                    print(f"      First item: {str(first_item)[:100]}...")
+            elif hasattr(positive_cond, 'shape'):
                 print(f"      Shape: {positive_cond.shape}")
                 print(f"      Dtype: {positive_cond.dtype}")
                 print(f"      Device: {positive_cond.device}")
@@ -3507,11 +3537,41 @@ def main():
                 except Exception as val_error:
                     print(f"      Value glimpse: Could not compute ({val_error})")
             else:
-                print(f"      Value: {positive_cond}")
+                print(f"      Value: {str(positive_cond)[:100]}...")
             
             print(f"\n   📋 Negative Conditioning (K-Sampler input):")
             print(f"      Type: {type(negative_cond).__name__}")
-            if hasattr(negative_cond, 'shape'):
+            
+            # Handle complex nested structures
+            if isinstance(negative_cond, list) and len(negative_cond) > 0:
+                first_item = negative_cond[0]
+                print(f"      List length: {len(negative_cond)}")
+                print(f"      First item type: {type(first_item).__name__}")
+                
+                if hasattr(first_item, 'shape'):
+                    print(f"      Shape: {first_item.shape}")
+                    print(f"      Dtype: {first_item.dtype}")
+                    print(f"      Device: {first_item.device}")
+                    if hasattr(first_item, 'element_size'):
+                        memory_mb = first_item.numel() * first_item.element_size() / (1024**2)
+                        print(f"      Memory: {memory_mb:.2f} MB")
+                    # Value glimpse
+                    try:
+                        if hasattr(first_item, 'cpu'):
+                            cpu_tensor = first_item.cpu()
+                            min_val = cpu_tensor.min().item()
+                            max_val = cpu_tensor.max().item()
+                            mean_val = cpu_tensor.mean().item()
+                            print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                            # Show first few values
+                            flat_tensor = cpu_tensor.flatten()
+                            first_values = flat_tensor[:5].tolist()
+                            print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                    except Exception as val_error:
+                        print(f"      Value glimpse: Could not compute ({val_error})")
+                else:
+                    print(f"      First item: {str(first_item)[:100]}...")
+            elif hasattr(negative_cond, 'shape'):
                 print(f"      Shape: {negative_cond.shape}")
                 print(f"      Dtype: {negative_cond.dtype}")
                 print(f"      Device: {negative_cond.device}")
@@ -3533,11 +3593,39 @@ def main():
                 except Exception as val_error:
                     print(f"      Value glimpse: Could not compute ({val_error})")
             else:
-                print(f"      Value: {negative_cond}")
+                print(f"      Value: {str(negative_cond)[:100]}...")
             
             print(f"\n   📋 Latent Image (K-Sampler input):")
             print(f"      Type: {type(latent_image).__name__}")
-            if hasattr(latent_image, 'shape'):
+            
+            # Handle complex nested structures
+            if isinstance(latent_image, dict):
+                print(f"      Dict keys: {list(latent_image.keys())}")
+                if 'samples' in latent_image:
+                    samples = latent_image['samples']
+                    print(f"      Samples type: {type(samples).__name__}")
+                    if hasattr(samples, 'shape'):
+                        print(f"      Shape: {samples.shape}")
+                        print(f"      Dtype: {samples.dtype}")
+                        print(f"      Device: {samples.device}")
+                        if hasattr(samples, 'element_size'):
+                            memory_mb = samples.numel() * samples.element_size() / (1024**2)
+                            print(f"      Memory: {memory_mb:.2f} MB")
+                        # Value glimpse
+                        try:
+                            if hasattr(samples, 'cpu'):
+                                cpu_tensor = samples.cpu()
+                                min_val = cpu_tensor.min().item()
+                                max_val = cpu_tensor.max().item()
+                                mean_val = cpu_tensor.mean().item()
+                                print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                # Show first few values
+                                flat_tensor = cpu_tensor.flatten()
+                                first_values = flat_tensor[:5].tolist()
+                                print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                        except Exception as val_error:
+                            print(f"      Value glimpse: Could not compute ({val_error})")
+            elif hasattr(latent_image, 'shape'):
                 print(f"      Shape: {latent_image.shape}")
                 print(f"      Dtype: {latent_image.dtype}")
                 print(f"      Device: {latent_image.device}")
@@ -3559,7 +3647,7 @@ def main():
                 except Exception as val_error:
                     print(f"      Value glimpse: Could not compute ({val_error})")
             else:
-                print(f"      Value: {latent_image}")
+                print(f"      Value: {str(latent_image)[:100]}...")
             
             print(f"\n   ✅ K-Sampler inputs analyzed successfully")
             
