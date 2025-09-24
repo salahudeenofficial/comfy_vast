@@ -3510,6 +3510,112 @@ def main():
                 
                 print("      ✅ WanVaceToVideo node executed successfully!")
                 
+                # === K-SAMPLER INPUT ANALYSIS (CRITICAL OUTPUTS) ===
+                print(f"\n      🎯 K-SAMPLER INPUT ANALYSIS (Critical Outputs):")
+                print(f"         📋 These outputs will be used by the K-Sampler node:")
+                
+                # Extract the specific outputs used by K-Sampler
+                try:
+                    # Positive conditioning (used by K-Sampler)
+                    positive_cond = get_value_at_index(wanvacetovideo_13, 0)
+                    print(f"\n         📋 Positive Conditioning (K-Sampler input):")
+                    print(f"            Type: {type(positive_cond).__name__}")
+                    if hasattr(positive_cond, 'shape'):
+                        print(f"            Shape: {positive_cond.shape}")
+                        print(f"            Dtype: {positive_cond.dtype}")
+                        print(f"            Device: {positive_cond.device}")
+                        if hasattr(positive_cond, 'element_size'):
+                            memory_mb = positive_cond.numel() * positive_cond.element_size() / (1024**2)
+                            print(f"            Memory: {memory_mb:.2f} MB")
+                        # Value glimpse
+                        try:
+                            if hasattr(positive_cond, 'cpu'):
+                                cpu_tensor = positive_cond.cpu()
+                                min_val = cpu_tensor.min().item()
+                                max_val = cpu_tensor.max().item()
+                                mean_val = cpu_tensor.mean().item()
+                                print(f"            Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                # Show first few values
+                                flat_tensor = cpu_tensor.flatten()
+                                first_values = flat_tensor[:5].tolist()
+                                print(f"            First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                        except Exception as val_error:
+                            print(f"            Value glimpse: Could not compute ({val_error})")
+                    else:
+                        print(f"            Value: {positive_cond}")
+                    
+                    # Negative conditioning (used by K-Sampler)
+                    negative_cond = get_value_at_index(wanvacetovideo_13, 1)
+                    print(f"\n         📋 Negative Conditioning (K-Sampler input):")
+                    print(f"            Type: {type(negative_cond).__name__}")
+                    if hasattr(negative_cond, 'shape'):
+                        print(f"            Shape: {negative_cond.shape}")
+                        print(f"            Dtype: {negative_cond.dtype}")
+                        print(f"            Device: {negative_cond.device}")
+                        if hasattr(negative_cond, 'element_size'):
+                            memory_mb = negative_cond.numel() * negative_cond.element_size() / (1024**2)
+                            print(f"            Memory: {memory_mb:.2f} MB")
+                        # Value glimpse
+                        try:
+                            if hasattr(negative_cond, 'cpu'):
+                                cpu_tensor = negative_cond.cpu()
+                                min_val = cpu_tensor.min().item()
+                                max_val = cpu_tensor.max().item()
+                                mean_val = cpu_tensor.mean().item()
+                                print(f"            Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                # Show first few values
+                                flat_tensor = cpu_tensor.flatten()
+                                first_values = flat_tensor[:5].tolist()
+                                print(f"            First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                        except Exception as val_error:
+                            print(f"            Value glimpse: Could not compute ({val_error})")
+                    else:
+                        print(f"            Value: {negative_cond}")
+                    
+                    # Latent image (used by K-Sampler)
+                    latent_image = get_value_at_index(wanvacetovideo_13, 2)
+                    print(f"\n         📋 Latent Image (K-Sampler input):")
+                    print(f"            Type: {type(latent_image).__name__}")
+                    if hasattr(latent_image, 'shape'):
+                        print(f"            Shape: {latent_image.shape}")
+                        print(f"            Dtype: {latent_image.dtype}")
+                        print(f"            Device: {latent_image.device}")
+                        if hasattr(latent_image, 'element_size'):
+                            memory_mb = latent_image.numel() * latent_image.element_size() / (1024**2)
+                            print(f"            Memory: {memory_mb:.2f} MB")
+                        # Value glimpse
+                        try:
+                            if hasattr(latent_image, 'cpu'):
+                                cpu_tensor = latent_image.cpu()
+                                min_val = cpu_tensor.min().item()
+                                max_val = cpu_tensor.max().item()
+                                mean_val = cpu_tensor.mean().item()
+                                print(f"            Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                # Show first few values
+                                flat_tensor = cpu_tensor.flatten()
+                                first_values = flat_tensor[:5].tolist()
+                                print(f"            First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                        except Exception as val_error:
+                            print(f"            Value glimpse: Could not compute ({val_error})")
+                    else:
+                        print(f"            Value: {latent_image}")
+                    
+                    # Check if there's a trim_latent (output[3])
+                    try:
+                        trim_latent = get_value_at_index(wanvacetovideo_13, 3)
+                        print(f"\n         📋 Trim Latent (Additional output):")
+                        print(f"            Type: {type(trim_latent).__name__}")
+                        print(f"            Value: {trim_latent}")
+                    except (IndexError, KeyError):
+                        print(f"\n         📋 Trim Latent: Not available")
+                    
+                    print(f"\n         ✅ K-Sampler will use: positive[0], negative[1], latent_image[2]")
+                    
+                except Exception as extract_error:
+                    print(f"         ❌ Error extracting K-Sampler inputs: {extract_error}")
+                    import traceback
+                    traceback.print_exc()
+                
                 # === DETAILED WANVACETOVIDEO OUTPUT ANALYSIS ===
                 print(f"\n      🔍 DETAILED WANVACETOVIDEO OUTPUT ANALYSIS:")
                 print(f"         📊 Output type: {type(wanvacetovideo_13).__name__}")
