@@ -3074,64 +3074,70 @@ def main():
             print(f"💡 The LoRA file should be in: models/loras/lora.safetensors")
             return
         
-        # Apply LoRA with monitoring
-        try:
-            print("\n🔧 APPLYING LORA TO MODELS...")
-            
-            # Start monitoring peak memory during LoRA application
-            # model_monitor.start_monitoring("lora_application")
-            
-            # Update peak memory before LoRA application
-            # model_monitor.update_peak_memory()
-            
-            loraloader = LoraLoader()
-            loraloader_24 = loraloader.load_lora(
-                lora_name="lora.safetensors",
-                strength_model=0.5000000000000001,
-                strength_clip=1,
-                model=unet_model_baseline,
-                clip=clip_model_baseline,
-            )
-            
-            # Update peak memory after LoRA application
-            # model_monitor.update_peak_memory()
-            
-            # Extract modified models from result
-            modified_unet = get_value_at_index(loraloader_24, 0)
-            modified_clip = get_value_at_index(loraloader_24, 1)
-            
-            # Update peak memory after model extraction
-            # model_monitor.update_peak_memory()
-            
-            # End monitoring and get peak memory summary
-            # elapsed_time = model_monitor.end_monitoring("lora_application", loraloader_24, "LoRA_Result")
-            # peak_memory_summary = model_monitor.get_peak_memory_summary()
-            
-            # Analyze LoRA application results
-            # print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
-            # lora_analysis = model_monitor.analyze_lora_application_results(
-            #     lora_baseline, 
-            #     modified_unet, 
-            #     modified_clip, 
-            #     loraloader_24
-            # )
-            
-            # Print comprehensive analysis
-            # model_monitor.print_lora_analysis_summary(lora_analysis)
-            
-            # Print peak memory information
-            # print(f"\n📊 PEAK MEMORY DURING LORA APPLICATION:")
-            # print(f"   🖥️  RAM Peak: {peak_memory_summary['ram_peak_mb']:.1f} MB")
-            # print(f"   🎮 GPU Allocated Peak: {peak_memory_summary['gpu_allocated_peak_mb']:.1f} MB")
-            # print(f"   🎮 GPU Reserved Peak: {peak_memory_summary['gpu_reserved_peak_mb']:.1f} MB")
-            # print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
-            
-            print("✅ Step 2 completed: LoRA Application")
-            
-        except Exception as e:
-            print(f"❌ ERROR during LoRA application: {e}")
-            print("🔍 LoRA application failed - check error details above")
-            loraloader_24 = None
+        # Apply LoRA with monitoring - COMMENTED OUT
+        # try:
+        #     print("\n🔧 APPLYING LORA TO MODELS...")
+        #     
+        #     # Start monitoring peak memory during LoRA application
+        #     # model_monitor.start_monitoring("lora_application")
+        #     
+        #     # Update peak memory before LoRA application
+        #     # model_monitor.update_peak_memory()
+        #     
+        #     loraloader = LoraLoader()
+        #     loraloader_24 = loraloader.load_lora(
+        #         lora_name="lora.safetensors",
+        #         strength_model=0.5000000000000001,
+        #         strength_clip=1,
+        #         model=unet_model_baseline,
+        #         clip=clip_model_baseline,
+        #     )
+        #     
+        #     # Update peak memory after LoRA application
+        #     # model_monitor.update_peak_memory()
+        #     
+        #     # Extract modified models from result
+        #     modified_unet = get_value_at_index(loraloader_24, 0)
+        #     modified_clip = get_value_at_index(loraloader_24, 1)
+        #     
+        #     # Update peak memory after model extraction
+        #     # model_monitor.update_peak_memory()
+        #     
+        #     # End monitoring and get peak memory summary
+        #     # elapsed_time = model_monitor.end_monitoring("lora_application", loraloader_24, "LoRA_Result")
+        #     # peak_memory_summary = model_monitor.get_peak_memory_summary()
+        #     
+        #     # Analyze LoRA application results
+        #     # print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
+        #     # lora_analysis = model_monitor.analyze_lora_application_results(
+        #     #     lora_baseline, 
+        #     #     modified_unet, 
+        #     #     modified_clip, 
+        #     #     loraloader_24
+        #     # )
+        #     
+        #     # Print comprehensive analysis
+        #     # model_monitor.print_lora_analysis_summary(lora_analysis)
+        #     
+        #     # Print peak memory information
+        #     # print(f"\n📊 PEAK MEMORY DURING LORA APPLICATION:")
+        #     # print(f"   🖥️  RAM Peak: {peak_memory_summary['ram_peak_mb']:.1f} MB")
+        #     # print(f"   🎮 GPU Allocated Peak: {peak_memory_summary['gpu_allocated_peak_mb']:.1f} MB")
+        #     # print(f"   🎮 GPU Reserved Peak: {peak_memory_summary['gpu_reserved_peak_mb']:.1f} MB")
+        #     # print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
+        #     
+        #     print("✅ Step 2 completed: LoRA Application")
+        #     
+        # except Exception as e:
+        #     print(f"❌ ERROR during LoRA application: {e}")
+        #     print("🔍 LoRA application failed - check error details above")
+        #     loraloader_24 = None
+        
+        # Use original models instead of LoRA-modified ones
+        print("\n🔧 SKIPPING LORA APPLICATION - USING ORIGINAL MODELS...")
+        modified_unet = unet_model_baseline
+        modified_clip = clip_model_baseline
+        print("✅ Step 2 skipped: Using original models (no LoRA applied)")
             
         # === STEP 2 END: LORA APPLICATION ===
 
@@ -3144,7 +3150,7 @@ def main():
         # Capture baseline state before text encoding
         # print("\n🔍 CAPTURING BASELINE STATE BEFORE TEXT ENCODING...")
         
-        # Get the modified models from LoRA application
+        # Get the models (now using original models instead of LoRA-modified ones)
         if 'modified_unet' in locals() and 'modified_clip' in locals():
             # try:
             #     text_encoding_baseline = model_monitor.capture_text_encoding_baseline(
@@ -3168,8 +3174,8 @@ def main():
             #     text_encoding_baseline = None
             pass
         else:
-            print("❌ ERROR: Modified models not available from LoRA application")
-            print("🔍 Cannot proceed with text encoding - check LoRA application step")
+            print("❌ ERROR: Models not available")
+            print("🔍 Cannot proceed with text encoding - check model loading step")
             return
         
         # Define text prompts for encoding
@@ -3358,7 +3364,7 @@ def main():
         # === STEP 4 START: MODEL SAMPLING ===
         print("4. Applying ModelSamplingSD3 to UNET...")
         
-        # Get the modified models from LoRA application
+        # Get the models (now using original models instead of LoRA-modified ones)
         if 'modified_unet' in locals() and 'modified_clip' in locals():
             try:
                 # Apply ModelSamplingSD3 (using existing node)
@@ -3488,33 +3494,102 @@ def main():
             
             # Handle complex nested structures
             if isinstance(positive_cond, list) and len(positive_cond) > 0:
-                first_item = positive_cond[0]
                 print(f"      List length: {len(positive_cond)}")
-                print(f"      First item type: {type(first_item).__name__}")
                 
-                if hasattr(first_item, 'shape'):
-                    print(f"      Shape: {first_item.shape}")
-                    print(f"      Dtype: {first_item.dtype}")
-                    print(f"      Device: {first_item.device}")
-                    if hasattr(first_item, 'element_size'):
-                        memory_mb = first_item.numel() * first_item.element_size() / (1024**2)
-                        print(f"      Memory: {memory_mb:.2f} MB")
-                    # Value glimpse
-                    try:
-                        if hasattr(first_item, 'cpu'):
-                            cpu_tensor = first_item.cpu()
-                            min_val = cpu_tensor.min().item()
-                            max_val = cpu_tensor.max().item()
-                            mean_val = cpu_tensor.mean().item()
-                            print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                            # Show first few values
-                            flat_tensor = cpu_tensor.flatten()
-                            first_values = flat_tensor[:5].tolist()
-                            print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                    except Exception as val_error:
-                        print(f"      Value glimpse: Could not compute ({val_error})")
+                # Extract all tensor shapes from nested structure
+                tensor_count = 0
+                total_memory = 0
+                
+                def extract_tensor_info(obj, depth=0):
+                    nonlocal tensor_count, total_memory
+                    indent = "      " + "  " * depth
+                    
+                    if hasattr(obj, 'shape'):
+                        tensor_count += 1
+                        print(f"{indent}Tensor {tensor_count}:")
+                        print(f"{indent}  Shape: {obj.shape}")
+                        print(f"{indent}  Dtype: {obj.dtype}")
+                        print(f"{indent}  Device: {obj.device}")
+                        if hasattr(obj, 'element_size'):
+                            memory_mb = obj.numel() * obj.element_size() / (1024**2)
+                            total_memory += memory_mb
+                            print(f"{indent}  Memory: {memory_mb:.2f} MB")
+                        # Value glimpse
+                        try:
+                            if hasattr(obj, 'cpu'):
+                                cpu_tensor = obj.cpu()
+                                min_val = cpu_tensor.min().item()
+                                max_val = cpu_tensor.max().item()
+                                mean_val = cpu_tensor.mean().item()
+                                print(f"{indent}  Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                # Show first few values
+                                flat_tensor = cpu_tensor.flatten()
+                                first_values = flat_tensor[:5].tolist()
+                                print(f"{indent}  First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                        except Exception as val_error:
+                            print(f"{indent}  Value glimpse: Could not compute ({val_error})")
+                        return
+                    
+                    if isinstance(obj, (list, tuple)):
+                        for i, item in enumerate(obj):
+                            if depth < 3:  # Limit recursion depth
+                                extract_tensor_info(item, depth + 1)
+                    elif isinstance(obj, dict):
+                        for key, value in obj.items():
+                            if depth < 3:  # Limit recursion depth
+                                print(f"{indent}Key '{key}': {type(value).__name__}")
+                                if hasattr(value, 'shape'):
+                                    print(f"{indent}  -> Contains tensor with shape: {value.shape}")
+                                elif isinstance(value, (list, tuple)) and len(value) > 0:
+                                    print(f"{indent}  -> Contains {len(value)} items")
+                                    # For VACE keys, show more detail about what's inside
+                                    if key in ['vace_frames', 'vace_mask', 'vace_strength']:
+                                        for i, item in enumerate(value):
+                                            if hasattr(item, 'shape'):
+                                                print(f"{indent}    Item {i}: Tensor with shape {item.shape}")
+                                                # Count VACE tensors as well
+                                                tensor_count += 1
+                                                print(f"{indent}      Tensor {tensor_count}:")
+                                                print(f"{indent}        Shape: {item.shape}")
+                                                print(f"{indent}        Dtype: {item.dtype}")
+                                                print(f"{indent}        Device: {item.device}")
+                                                if hasattr(item, 'element_size'):
+                                                    memory_mb = item.numel() * item.element_size() / (1024**2)
+                                                    total_memory += memory_mb
+                                                    print(f"{indent}        Memory: {memory_mb:.2f} MB")
+                                                # Value glimpse for VACE tensors
+                                                try:
+                                                    if hasattr(item, 'cpu'):
+                                                        cpu_tensor = item.cpu()
+                                                        min_val = cpu_tensor.min().item()
+                                                        max_val = cpu_tensor.max().item()
+                                                        mean_val = cpu_tensor.mean().item()
+                                                        print(f"{indent}        Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                                        # Show first few values
+                                                        flat_tensor = cpu_tensor.flatten()
+                                                        first_values = flat_tensor[:5].tolist()
+                                                        print(f"{indent}        First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                                                except Exception as val_error:
+                                                    print(f"{indent}        Value glimpse: Could not compute ({val_error})")
+                                            else:
+                                                print(f"{indent}    Item {i}: {type(item).__name__} = {str(item)[:30]}...")
+                                elif value is None:
+                                    print(f"{indent}  -> None")
+                                else:
+                                    print(f"{indent}  -> Value: {str(value)[:50]}...")
+                                extract_tensor_info(value, depth + 1)
+                
+                extract_tensor_info(positive_cond)
+                print(f"      Total tensors found: {tensor_count}")
+                print(f"      Total memory: {total_memory:.2f} MB")
+                
+                # Verify tensor count (VACE enhancement adds additional tensors)
+                if tensor_count == 1:
+                    print(f"      ✅ VERIFIED: Only 1 tensor found (basic text conditioning)")
+                elif tensor_count == 3:
+                    print(f"      ✅ VERIFIED: 3 tensors found (text + VACE frames + VACE mask)")
                 else:
-                    print(f"      First item: {str(first_item)[:100]}...")
+                    print(f"      ⚠️  WARNING: Found {tensor_count} tensors (expected 1 or 3)")
             elif hasattr(positive_cond, 'shape'):
                 print(f"      Shape: {positive_cond.shape}")
                 print(f"      Dtype: {positive_cond.dtype}")
@@ -3544,33 +3619,102 @@ def main():
             
             # Handle complex nested structures
             if isinstance(negative_cond, list) and len(negative_cond) > 0:
-                first_item = negative_cond[0]
                 print(f"      List length: {len(negative_cond)}")
-                print(f"      First item type: {type(first_item).__name__}")
                 
-                if hasattr(first_item, 'shape'):
-                    print(f"      Shape: {first_item.shape}")
-                    print(f"      Dtype: {first_item.dtype}")
-                    print(f"      Device: {first_item.device}")
-                    if hasattr(first_item, 'element_size'):
-                        memory_mb = first_item.numel() * first_item.element_size() / (1024**2)
-                        print(f"      Memory: {memory_mb:.2f} MB")
-                    # Value glimpse
-                    try:
-                        if hasattr(first_item, 'cpu'):
-                            cpu_tensor = first_item.cpu()
-                            min_val = cpu_tensor.min().item()
-                            max_val = cpu_tensor.max().item()
-                            mean_val = cpu_tensor.mean().item()
-                            print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                            # Show first few values
-                            flat_tensor = cpu_tensor.flatten()
-                            first_values = flat_tensor[:5].tolist()
-                            print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                    except Exception as val_error:
-                        print(f"      Value glimpse: Could not compute ({val_error})")
+                # Extract all tensor shapes from nested structure
+                tensor_count = 0
+                total_memory = 0
+                
+                def extract_tensor_info(obj, depth=0):
+                    nonlocal tensor_count, total_memory
+                    indent = "      " + "  " * depth
+                    
+                    if hasattr(obj, 'shape'):
+                        tensor_count += 1
+                        print(f"{indent}Tensor {tensor_count}:")
+                        print(f"{indent}  Shape: {obj.shape}")
+                        print(f"{indent}  Dtype: {obj.dtype}")
+                        print(f"{indent}  Device: {obj.device}")
+                        if hasattr(obj, 'element_size'):
+                            memory_mb = obj.numel() * obj.element_size() / (1024**2)
+                            total_memory += memory_mb
+                            print(f"{indent}  Memory: {memory_mb:.2f} MB")
+                        # Value glimpse
+                        try:
+                            if hasattr(obj, 'cpu'):
+                                cpu_tensor = obj.cpu()
+                                min_val = cpu_tensor.min().item()
+                                max_val = cpu_tensor.max().item()
+                                mean_val = cpu_tensor.mean().item()
+                                print(f"{indent}  Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                # Show first few values
+                                flat_tensor = cpu_tensor.flatten()
+                                first_values = flat_tensor[:5].tolist()
+                                print(f"{indent}  First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                        except Exception as val_error:
+                            print(f"{indent}  Value glimpse: Could not compute ({val_error})")
+                        return
+                    
+                    if isinstance(obj, (list, tuple)):
+                        for i, item in enumerate(obj):
+                            if depth < 3:  # Limit recursion depth
+                                extract_tensor_info(item, depth + 1)
+                    elif isinstance(obj, dict):
+                        for key, value in obj.items():
+                            if depth < 3:  # Limit recursion depth
+                                print(f"{indent}Key '{key}': {type(value).__name__}")
+                                if hasattr(value, 'shape'):
+                                    print(f"{indent}  -> Contains tensor with shape: {value.shape}")
+                                elif isinstance(value, (list, tuple)) and len(value) > 0:
+                                    print(f"{indent}  -> Contains {len(value)} items")
+                                    # For VACE keys, show more detail about what's inside
+                                    if key in ['vace_frames', 'vace_mask', 'vace_strength']:
+                                        for i, item in enumerate(value):
+                                            if hasattr(item, 'shape'):
+                                                print(f"{indent}    Item {i}: Tensor with shape {item.shape}")
+                                                # Count VACE tensors as well
+                                                tensor_count += 1
+                                                print(f"{indent}      Tensor {tensor_count}:")
+                                                print(f"{indent}        Shape: {item.shape}")
+                                                print(f"{indent}        Dtype: {item.dtype}")
+                                                print(f"{indent}        Device: {item.device}")
+                                                if hasattr(item, 'element_size'):
+                                                    memory_mb = item.numel() * item.element_size() / (1024**2)
+                                                    total_memory += memory_mb
+                                                    print(f"{indent}        Memory: {memory_mb:.2f} MB")
+                                                # Value glimpse for VACE tensors
+                                                try:
+                                                    if hasattr(item, 'cpu'):
+                                                        cpu_tensor = item.cpu()
+                                                        min_val = cpu_tensor.min().item()
+                                                        max_val = cpu_tensor.max().item()
+                                                        mean_val = cpu_tensor.mean().item()
+                                                        print(f"{indent}        Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                                                        # Show first few values
+                                                        flat_tensor = cpu_tensor.flatten()
+                                                        first_values = flat_tensor[:5].tolist()
+                                                        print(f"{indent}        First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                                                except Exception as val_error:
+                                                    print(f"{indent}        Value glimpse: Could not compute ({val_error})")
+                                            else:
+                                                print(f"{indent}    Item {i}: {type(item).__name__} = {str(item)[:30]}...")
+                                elif value is None:
+                                    print(f"{indent}  -> None")
+                                else:
+                                    print(f"{indent}  -> Value: {str(value)[:50]}...")
+                                extract_tensor_info(value, depth + 1)
+                
+                extract_tensor_info(negative_cond)
+                print(f"      Total tensors found: {tensor_count}")
+                print(f"      Total memory: {total_memory:.2f} MB")
+                
+                # Verify tensor count (VACE enhancement adds additional tensors)
+                if tensor_count == 1:
+                    print(f"      ✅ VERIFIED: Only 1 tensor found (basic text conditioning)")
+                elif tensor_count == 3:
+                    print(f"      ✅ VERIFIED: 3 tensors found (text + VACE frames + VACE mask)")
                 else:
-                    print(f"      First item: {str(first_item)[:100]}...")
+                    print(f"      ⚠️  WARNING: Found {tensor_count} tensors (expected 1 or 3)")
             elif hasattr(negative_cond, 'shape'):
                 print(f"      Shape: {negative_cond.shape}")
                 print(f"      Dtype: {negative_cond.dtype}")
