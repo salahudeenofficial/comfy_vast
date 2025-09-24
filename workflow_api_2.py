@@ -32,18 +32,23 @@ def attempt_vhs_import():
     pass
 
 # Add monitoring and debugging utilities
-class VAEEncodeMonitor:
-    """Specialized monitor for VAE .encode() calls with multi-threaded GPU monitoring"""
+# VAEEncodeMonitor class removed - no longer needed
+class ModelLoadingMonitor:
+    """Comprehensive monitoring for model loading steps"""
     
     def __init__(self):
-        self.encode_calls = []
-        self.gpu_monitoring_active = False
-        self.gpu_monitor_thread = None
-        self.stop_gpu_monitoring_event = threading.Event()
-        self.gpu_peak_data = []
-        self.current_encode_call = None
+        self.baseline_ram = None
+        self.baseline_gpu = None
+        self.monitoring_data = {}
+        self.step_start_time = None
         
-    def start_gpu_monitoring(self):
+        # Create output directories for tensor dumps
+        self._create_output_directories()
+        
+        # Test tensor creation to verify directory works
+        self._test_tensor_creation()
+    
+    def _create_output_directories(self):
         """Start continuous GPU monitoring in background thread"""
         if self.gpu_monitoring_active:
             return
@@ -2473,7 +2478,7 @@ class ModelLoadingMonitor:
 
 # Initialize the monitors
 model_monitor = ModelLoadingMonitor()
-vae_encode_monitor = VAEEncodeMonitor()
+# VAEEncodeMonitor removed - no longer needed
 
 
 def find_safu_files():
@@ -3397,11 +3402,11 @@ def main():
         # === STEP 4 END: MODEL SAMPLING ===
 
         # === STEP 5 START: INITIAL LATENT GENERATION ===
-        print("5. Executing WanVaceToVideo node with VAE .encode() monitoring...")
+        print("5. Executing WanVaceToVideo node...")
         
-        # Execute WanVaceToVideo node with VAE encode monitoring
+        # Execute WanVaceToVideo node
         try:
-            print("\n🔧 EXECUTING WANVACETOVIDEO NODE WITH VAE ENCODE MONITORING...")
+            print("\n🔧 EXECUTING WANVACETOVIDEO NODE...")
             
             # Check if we have all required inputs
             required_inputs = {
@@ -3424,60 +3429,7 @@ def main():
                 print("🔍 Please ensure all previous steps completed successfully")
                 return
             
-            print(f"\n   ✅ All required inputs available - proceeding with VAE encode monitoring")
-            
-            # === VAE ENCODE MONITORING SETUP ===
-            print(f"\n🔍 SETTING UP VAE ENCODE MONITORING...")
-            
-            # Get VAE model for monitoring
-            vae_model = get_value_at_index(vaeloader_7, 0)
-            print(f"   🎨 VAE Model: {type(vae_model).__name__}")
-            
-            # Create a wrapper to intercept VAE encode calls
-            class VAEEncodeWrapper:
-                def __init__(self, original_vae, monitor):
-                    self.original_vae = original_vae
-                    self.monitor = monitor
-                    self.encode_call_counter = 0
-                
-                def encode(self, pixel_samples):
-                    """Intercept encode calls and monitor them"""
-                    self.encode_call_counter += 1
-                    call_id = self.encode_call_counter
-                    
-                    # Determine call type based on input
-                    if hasattr(pixel_samples, 'shape'):
-                        shape = pixel_samples.shape
-                        if len(shape) == 4:  # Standard image tensor
-                            if shape[0] == 1:  # Single image
-                                call_type = "Reference Image"
-                            else:
-                                call_type = "Video Frames"
-                        else:
-                            call_type = "Unknown Tensor"
-                    else:
-                        call_type = "Unknown Input"
-                    
-                    print(f"\n   🔍 INTERCEPTING VAE.encode() call #{call_id} ({call_type})")
-                    
-                    # Use the monitor to track this encode call
-                    return self.monitor.monitor_encode_call(
-                        self.original_vae, 
-                        pixel_samples, 
-                        call_id, 
-                        call_type
-                    )
-                
-                def __getattr__(self, name):
-                    """Delegate all other attributes to the original VAE"""
-                    return getattr(self.original_vae, name)
-            
-            # Wrap the VAE model with monitoring
-            monitored_vae = VAEEncodeWrapper(vae_model, vae_encode_monitor)
-            print(f"   ✅ VAE model wrapped with encode monitoring")
-            
-            # === EXECUTE WANVACETOVIDEO WITH MONITORED VAE ===
-            print(f"\n   🔧 EXECUTING WANVACETOVIDEO WITH MONITORED VAE...")
+            print(f"\n   ✅ All required inputs available - proceeding with WanVaceToVideo execution")
             
             try:
                 # Import WanVaceToVideo node
@@ -3488,12 +3440,8 @@ def main():
                 wanvacetovideo = WanVaceToVideo()
                 print("      ✅ WanVaceToVideo node instance created")
                 
-                # Temporarily replace the VAE in the node to use our monitored version
-                # We need to patch the node's VAE reference
-                original_vae_ref = get_value_at_index(vaeloader_7, 0)
-                
-                # Execute the node with our monitored VAE
-                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED with monitored VAE...")
+                # Execute the node
+                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED...")
                 
                 wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
                     width=480,
@@ -3503,456 +3451,12 @@ def main():
                     strength=1,
                     positive=get_value_at_index(positive_cond_tuple, 0),
                     negative=get_value_at_index(negative_cond_tuple, 0),
-                    vae=monitored_vae,  # Use our monitored VAE
+                    vae=get_value_at_index(vaeloader_7, 0),
                     control_video=get_value_at_index(vhs_loadvideo_1, 0),
                     reference_image=get_value_at_index(loadimage_4, 0),
                 )
                 
                 print("      ✅ WanVaceToVideo node executed successfully!")
-                
-                # === K-SAMPLER INPUT ANALYSIS (CRITICAL OUTPUTS) ===
-                print(f"\n      🎯 K-SAMPLER INPUT ANALYSIS (Critical Outputs):")
-                print(f"         📋 These outputs will be used by the K-Sampler node:")
-                
-                # Extract the specific outputs used by K-Sampler
-                try:
-                    # Positive conditioning (used by K-Sampler)
-                    positive_cond = get_value_at_index(wanvacetovideo_13, 0)
-                    print(f"\n         📋 Positive Conditioning (K-Sampler input):")
-                    print(f"            Type: {type(positive_cond).__name__}")
-                    if hasattr(positive_cond, 'shape'):
-                        print(f"            Shape: {positive_cond.shape}")
-                        print(f"            Dtype: {positive_cond.dtype}")
-                        print(f"            Device: {positive_cond.device}")
-                        if hasattr(positive_cond, 'element_size'):
-                            memory_mb = positive_cond.numel() * positive_cond.element_size() / (1024**2)
-                            print(f"            Memory: {memory_mb:.2f} MB")
-                        # Value glimpse
-                        try:
-                            if hasattr(positive_cond, 'cpu'):
-                                cpu_tensor = positive_cond.cpu()
-                                min_val = cpu_tensor.min().item()
-                                max_val = cpu_tensor.max().item()
-                                mean_val = cpu_tensor.mean().item()
-                                print(f"            Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                # Show first few values
-                                flat_tensor = cpu_tensor.flatten()
-                                first_values = flat_tensor[:5].tolist()
-                                print(f"            First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                        except Exception as val_error:
-                            print(f"            Value glimpse: Could not compute ({val_error})")
-                    else:
-                        print(f"            Value: {positive_cond}")
-                    
-                    # Negative conditioning (used by K-Sampler)
-                    negative_cond = get_value_at_index(wanvacetovideo_13, 1)
-                    print(f"\n         📋 Negative Conditioning (K-Sampler input):")
-                    print(f"            Type: {type(negative_cond).__name__}")
-                    if hasattr(negative_cond, 'shape'):
-                        print(f"            Shape: {negative_cond.shape}")
-                        print(f"            Dtype: {negative_cond.dtype}")
-                        print(f"            Device: {negative_cond.device}")
-                        if hasattr(negative_cond, 'element_size'):
-                            memory_mb = negative_cond.numel() * negative_cond.element_size() / (1024**2)
-                            print(f"            Memory: {memory_mb:.2f} MB")
-                        # Value glimpse
-                        try:
-                            if hasattr(negative_cond, 'cpu'):
-                                cpu_tensor = negative_cond.cpu()
-                                min_val = cpu_tensor.min().item()
-                                max_val = cpu_tensor.max().item()
-                                mean_val = cpu_tensor.mean().item()
-                                print(f"            Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                # Show first few values
-                                flat_tensor = cpu_tensor.flatten()
-                                first_values = flat_tensor[:5].tolist()
-                                print(f"            First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                        except Exception as val_error:
-                            print(f"            Value glimpse: Could not compute ({val_error})")
-                    else:
-                        print(f"            Value: {negative_cond}")
-                    
-                    # Latent image (used by K-Sampler)
-                    latent_image = get_value_at_index(wanvacetovideo_13, 2)
-                    print(f"\n         📋 Latent Image (K-Sampler input):")
-                    print(f"            Type: {type(latent_image).__name__}")
-                    if hasattr(latent_image, 'shape'):
-                        print(f"            Shape: {latent_image.shape}")
-                        print(f"            Dtype: {latent_image.dtype}")
-                        print(f"            Device: {latent_image.device}")
-                        if hasattr(latent_image, 'element_size'):
-                            memory_mb = latent_image.numel() * latent_image.element_size() / (1024**2)
-                            print(f"            Memory: {memory_mb:.2f} MB")
-                        # Value glimpse
-                        try:
-                            if hasattr(latent_image, 'cpu'):
-                                cpu_tensor = latent_image.cpu()
-                                min_val = cpu_tensor.min().item()
-                                max_val = cpu_tensor.max().item()
-                                mean_val = cpu_tensor.mean().item()
-                                print(f"            Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                # Show first few values
-                                flat_tensor = cpu_tensor.flatten()
-                                first_values = flat_tensor[:5].tolist()
-                                print(f"            First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                        except Exception as val_error:
-                            print(f"            Value glimpse: Could not compute ({val_error})")
-                    else:
-                        print(f"            Value: {latent_image}")
-                    
-                    # Check if there's a trim_latent (output[3])
-                    try:
-                        trim_latent = get_value_at_index(wanvacetovideo_13, 3)
-                        print(f"\n         📋 Trim Latent (Additional output):")
-                        print(f"            Type: {type(trim_latent).__name__}")
-                        print(f"            Value: {trim_latent}")
-                    except (IndexError, KeyError):
-                        print(f"\n         📋 Trim Latent: Not available")
-                    
-                    print(f"\n         ✅ K-Sampler will use: positive[0], negative[1], latent_image[2]")
-                    
-                except Exception as extract_error:
-                    print(f"         ❌ Error extracting K-Sampler inputs: {extract_error}")
-                    import traceback
-                    traceback.print_exc()
-                
-                # === DETAILED WANVACETOVIDEO OUTPUT ANALYSIS ===
-                print(f"\n      🔍 DETAILED WANVACETOVIDEO OUTPUT ANALYSIS:")
-                print(f"         📊 Output type: {type(wanvacetovideo_13).__name__}")
-                
-                # Analyze the output structure
-                if hasattr(wanvacetovideo_13, '__len__'):
-                    print(f"         📐 Output length: {len(wanvacetovideo_13)}")
-                    
-                    # Analyze each output element
-                    for i, output_item in enumerate(wanvacetovideo_13):
-                        print(f"         📋 Output[{i}]:")
-                        print(f"            Type: {type(output_item).__name__}")
-                        
-                        if hasattr(output_item, 'shape'):
-                            print(f"            Shape: {output_item.shape}")
-                            print(f"            Dtype: {output_item.dtype}")
-                            print(f"            Device: {output_item.device}")
-                            
-                            # Calculate memory usage
-                            if hasattr(output_item, 'element_size'):
-                                memory_mb = output_item.numel() * output_item.element_size() / (1024**2)
-                                print(f"            Memory: {memory_mb:.2f} MB")
-                            
-                            # Print tensor statistics
-                            if hasattr(output_item, 'min') and hasattr(output_item, 'max'):
-                                try:
-                                    min_val = output_item.min().item()
-                                    max_val = output_item.max().item()
-                                    mean_val = output_item.mean().item()
-                                    print(f"            Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                except Exception as stats_error:
-                                    print(f"            Stats: Could not compute ({stats_error})")
-                        else:
-                            print(f"            Value: {output_item}")
-                else:
-                    print(f"         📐 Single output (no length attribute)")
-                    
-                    # Handle NodeOutput objects
-                    if hasattr(wanvacetovideo_13, '__dict__'):
-                        print(f"         🔍 NodeOutput attributes:")
-                        for attr_name, attr_value in wanvacetovideo_13.__dict__.items():
-                            print(f"            {attr_name}: {type(attr_value).__name__}")
-                            if hasattr(attr_value, 'shape'):
-                                print(f"               Shape: {attr_value.shape}")
-                                print(f"               Dtype: {attr_value.dtype}")
-                                print(f"               Device: {attr_value.device}")
-                                if hasattr(attr_value, 'element_size'):
-                                    memory_mb = attr_value.numel() * attr_value.element_size() / (1024**2)
-                                    print(f"               Memory: {memory_mb:.2f} MB")
-                        
-                        # Handle args attribute specifically (contains the actual outputs)
-                        if hasattr(wanvacetovideo_13, 'args') and wanvacetovideo_13.args:
-                            print(f"         📋 NodeOutput.args analysis:")
-                            args = wanvacetovideo_13.args
-                            print(f"            Args type: {type(args).__name__}")
-                            print(f"            Args length: {len(args) if hasattr(args, '__len__') else 'N/A'}")
-                            
-                            if hasattr(args, '__len__'):
-                                for i, arg_item in enumerate(args):
-                                    print(f"            Args[{i}]:")
-                                    print(f"               Type: {type(arg_item).__name__}")
-                                    
-                                    if hasattr(arg_item, 'shape'):
-                                        print(f"               Shape: {arg_item.shape}")
-                                        print(f"               Dtype: {arg_item.dtype}")
-                                        print(f"               Device: {arg_item.device}")
-                                        if hasattr(arg_item, 'element_size'):
-                                            memory_mb = arg_item.numel() * arg_item.element_size() / (1024**2)
-                                            print(f"               Memory: {memory_mb:.2f} MB")
-                                        
-                                        # Print tensor statistics
-                                        if hasattr(arg_item, 'min') and hasattr(arg_item, 'max'):
-                                            try:
-                                                min_val = arg_item.min().item()
-                                                max_val = arg_item.max().item()
-                                                mean_val = arg_item.mean().item()
-                                                print(f"               Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                            except Exception as stats_error:
-                                                print(f"               Stats: Could not compute ({stats_error})")
-                                    else:
-                                        print(f"               Value: {arg_item}")
-                                        
-                                        # Deep analysis for complex structures
-                                        if isinstance(arg_item, (list, tuple)):
-                                            print(f"               📋 Deep analysis of {type(arg_item).__name__}:")
-                                            print(f"                  Length: {len(arg_item)}")
-                                            for j, sub_item in enumerate(arg_item):
-                                                print(f"                  [{j}]: {type(sub_item).__name__}")
-                                                if hasattr(sub_item, 'shape'):
-                                                    print(f"                     Shape: {sub_item.shape}")
-                                                    print(f"                     Dtype: {sub_item.dtype}")
-                                                    print(f"                     Device: {sub_item.device}")
-                                                    if hasattr(sub_item, 'element_size'):
-                                                        memory_mb = sub_item.numel() * sub_item.element_size() / (1024**2)
-                                                        print(f"                     Memory: {memory_mb:.2f} MB")
-                                                else:
-                                                    print(f"                     Value: {sub_item}")
-                                        
-                                        elif isinstance(arg_item, dict):
-                                            print(f"               📋 Deep analysis of dict:")
-                                            print(f"                  Keys: {list(arg_item.keys())}")
-                                            for key, value in arg_item.items():
-                                                print(f"                  {key}: {type(value).__name__}")
-                                                if hasattr(value, 'shape'):
-                                                    print(f"                     Shape: {value.shape}")
-                                                    print(f"                     Dtype: {value.dtype}")
-                                                    print(f"                     Device: {value.device}")
-                                                    if hasattr(value, 'element_size'):
-                                                        memory_mb = value.numel() * value.element_size() / (1024**2)
-                                                        print(f"                     Memory: {memory_mb:.2f} MB")
-                                                else:
-                                                    print(f"                     Value: {value}")
-                    
-                    # Try to access common NodeOutput properties
-                    if hasattr(wanvacetovideo_13, 'positive'):
-                        print(f"         📋 Positive conditioning:")
-                        pos_cond = wanvacetovideo_13.positive
-                        if hasattr(pos_cond, 'shape'):
-                            print(f"            Shape: {pos_cond.shape}")
-                            print(f"            Dtype: {pos_cond.dtype}")
-                            print(f"            Device: {pos_cond.device}")
-                    
-                    if hasattr(wanvacetovideo_13, 'negative'):
-                        print(f"         📋 Negative conditioning:")
-                        neg_cond = wanvacetovideo_13.negative
-                        if hasattr(neg_cond, 'shape'):
-                            print(f"            Shape: {neg_cond.shape}")
-                            print(f"            Dtype: {neg_cond.dtype}")
-                            print(f"            Device: {neg_cond.device}")
-                    
-                    if hasattr(wanvacetovideo_13, 'latent'):
-                        print(f"         📋 Latent:")
-                        latent = wanvacetovideo_13.latent
-                        if hasattr(latent, 'shape'):
-                            print(f"            Shape: {latent.shape}")
-                            print(f"            Dtype: {latent.dtype}")
-                            print(f"            Device: {latent.device}")
-                            if hasattr(latent, 'element_size'):
-                                memory_mb = latent.numel() * latent.element_size() / (1024**2)
-                                print(f"            Memory: {memory_mb:.2f} MB")
-                    
-                    if hasattr(wanvacetovideo_13, 'trim_latent'):
-                        print(f"         📋 Trim latent:")
-                        trim_latent = wanvacetovideo_13.trim_latent
-                        print(f"            Value: {trim_latent}")
-                        print(f"            Type: {type(trim_latent).__name__}")
-                    
-                    # Fallback: try to access as if it's a tuple/list
-                    try:
-                        if hasattr(wanvacetovideo_13, '__getitem__'):
-                            print(f"         🔍 Trying to access as indexed object:")
-                            for i in range(4):  # Try first 4 elements
-                                try:
-                                    item = wanvacetovideo_13[i]
-                                    print(f"            [{i}]: {type(item).__name__}")
-                                    if hasattr(item, 'shape'):
-                                        print(f"               Shape: {item.shape}")
-                                        print(f"               Dtype: {item.dtype}")
-                                        print(f"               Device: {item.device}")
-                                except (IndexError, KeyError):
-                                    break
-                    except Exception as index_error:
-                        print(f"         ⚠️  Could not access as indexed object: {index_error}")
-                    
-                    # Final fallback: check if it has shape directly
-                if hasattr(wanvacetovideo_13, 'shape'):
-                        print(f"            Shape: {wanvacetovideo_13.shape}")
-                        print(f"            Dtype: {wanvacetovideo_13.dtype}")
-                        print(f"            Device: {wanvacetovideo_13.device}")
-                
-                # === SAVE WANVACETOVIDEO OUTPUT ===
-                print(f"\n      💾 SAVING WANVACETOVIDEO OUTPUT...")
-                try:
-                    from datetime import datetime
-                    
-                    # Create output directory if it doesn't exist
-                    output_dir = "./output"
-                    if not os.path.exists(output_dir):
-                        os.makedirs(output_dir)
-                        print(f"         📁 Created output directory: {output_dir}")
-                    
-                    # Generate timestamp for unique filenames
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    
-                    # Save the complete WanVaceToVideo output
-                    wanvacetovideo_filename = f"{output_dir}/wanvacetovideo_output_{timestamp}.pt"
-                    torch.save(wanvacetovideo_13, wanvacetovideo_filename)
-                    print(f"         ✅ Saved complete output: {wanvacetovideo_filename}")
-                    print(f"            Size: {os.path.getsize(wanvacetovideo_filename) / (1024**2):.2f} MB")
-                    
-                    # Save individual output elements as numpy files
-                    if hasattr(wanvacetovideo_13, '__len__'):
-                        for i, output_item in enumerate(wanvacetovideo_13):
-                            if hasattr(output_item, 'cpu') and hasattr(output_item, 'numpy'):
-                                try:
-                                    numpy_filename = f"{output_dir}/wanvacetovideo_output_{i}_{timestamp}.npy"
-                                    np.save(numpy_filename, output_item.cpu().numpy())
-                                    print(f"         ✅ Saved output[{i}] as numpy: {numpy_filename}")
-                                    print(f"            Shape: {output_item.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
-                                except Exception as np_error:
-                                    print(f"         ⚠️  Could not save output[{i}] as numpy: {np_error}")
-                            else:
-                                print(f"         ℹ️  Output[{i}] is not a tensor, skipping numpy save")
-                    
-                    # Handle NodeOutput objects
-                    elif hasattr(wanvacetovideo_13, '__dict__'):
-                        print(f"         🔍 Saving NodeOutput attributes...")
-                        
-                        # Save all attributes that are tensors
-                        for attr_name, attr_value in wanvacetovideo_13.__dict__.items():
-                            if hasattr(attr_value, 'cpu') and hasattr(attr_value, 'numpy'):
-                                try:
-                                    numpy_filename = f"{output_dir}/wanvacetovideo_{attr_name}_{timestamp}.npy"
-                                    np.save(numpy_filename, attr_value.cpu().numpy())
-                                    print(f"         ✅ Saved {attr_name}: {numpy_filename}")
-                                    print(f"            Shape: {attr_value.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
-                                except Exception as np_error:
-                                    print(f"         ⚠️  Could not save {attr_name} as numpy: {np_error}")
-                            else:
-                                print(f"         ℹ️  {attr_name} is not a tensor, skipping numpy save")
-                        
-                        # Handle args attribute specifically (contains the actual outputs)
-                        if hasattr(wanvacetovideo_13, 'args') and wanvacetovideo_13.args:
-                            print(f"         🔍 Saving NodeOutput.args elements...")
-                            args = wanvacetovideo_13.args
-                            
-                            if hasattr(args, '__len__'):
-                                for i, arg_item in enumerate(args):
-                                    if hasattr(arg_item, 'cpu') and hasattr(arg_item, 'numpy'):
-                                        try:
-                                            numpy_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.npy"
-                                            np.save(numpy_filename, arg_item.cpu().numpy())
-                                            print(f"         ✅ Saved args[{i}]: {numpy_filename}")
-                                            print(f"            Shape: {arg_item.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
-                                        except Exception as np_error:
-                                            print(f"         ⚠️  Could not save args[{i}] as numpy: {np_error}")
-                                    else:
-                                        print(f"         ℹ️  args[{i}] is not a tensor, trying deep save...")
-                                        
-                                        # Try to save nested tensors in complex structures
-                                        try:
-                                            if isinstance(arg_item, (list, tuple)):
-                                                print(f"         🔍 Saving nested tensors in list/tuple...")
-                                                for j, sub_item in enumerate(arg_item):
-                                                    if hasattr(sub_item, 'cpu') and hasattr(sub_item, 'numpy'):
-                                                        numpy_filename = f"{output_dir}/wanvacetovideo_args_{i}_{j}_{timestamp}.npy"
-                                                        np.save(numpy_filename, sub_item.cpu().numpy())
-                                                        print(f"         ✅ Saved args[{i}][{j}]: {numpy_filename}")
-                                                        print(f"            Shape: {sub_item.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
-                                                    else:
-                                                        print(f"         ℹ️  args[{i}][{j}] is not a tensor")
-                                            
-                                            elif isinstance(arg_item, dict):
-                                                print(f"         🔍 Saving nested tensors in dict...")
-                                                for key, value in arg_item.items():
-                                                    if hasattr(value, 'cpu') and hasattr(value, 'numpy'):
-                                                        numpy_filename = f"{output_dir}/wanvacetovideo_args_{i}_{key}_{timestamp}.npy"
-                                                        np.save(numpy_filename, value.cpu().numpy())
-                                                        print(f"         ✅ Saved args[{i}][{key}]: {numpy_filename}")
-                                                        print(f"            Shape: {value.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
-                                                    else:
-                                                        print(f"         ℹ️  args[{i}][{key}] is not a tensor")
-                                            
-                                            # Fallback: save as text for simple types
-                                            elif isinstance(arg_item, (int, float, str)):
-                                                text_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.txt"
-                                                with open(text_filename, 'w') as f:
-                                                    f.write(str(arg_item))
-                                                print(f"         ✅ Saved args[{i}] as text: {text_filename}")
-                                                print(f"            Value: {arg_item}")
-                                                
-                                        except Exception as deep_save_error:
-                                            print(f"         ⚠️  Could not save args[{i}] deeply: {deep_save_error}")
-                                            # Final fallback: save as text
-                                            try:
-                                                text_filename = f"{output_dir}/wanvacetovideo_args_{i}_{timestamp}.txt"
-                                                with open(text_filename, 'w') as f:
-                                                    f.write(str(arg_item))
-                                                print(f"         ✅ Saved args[{i}] as text (fallback): {text_filename}")
-                                            except Exception as text_error:
-                                                print(f"         ❌ Could not save args[{i}] at all: {text_error}")
-                    
-                    # Try to access as indexed object and save
-                    try:
-                        if hasattr(wanvacetovideo_13, '__getitem__'):
-                            print(f"         🔍 Trying to save indexed elements...")
-                            for i in range(4):  # Try first 4 elements
-                                try:
-                                    item = wanvacetovideo_13[i]
-                                    if hasattr(item, 'cpu') and hasattr(item, 'numpy'):
-                                        numpy_filename = f"{output_dir}/wanvacetovideo_indexed_{i}_{timestamp}.npy"
-                                        np.save(numpy_filename, item.cpu().numpy())
-                                        print(f"         ✅ Saved indexed[{i}]: {numpy_filename}")
-                                        print(f"            Shape: {item.shape}, Size: {os.path.getsize(numpy_filename) / (1024**2):.2f} MB")
-                                    else:
-                                        print(f"         ℹ️  Indexed[{i}] is not a tensor, skipping numpy save")
-                                except (IndexError, KeyError):
-                                    break
-                    except Exception as index_error:
-                        print(f"         ⚠️  Could not save indexed elements: {index_error}")
-                    
-                    # Save specific outputs that are commonly used (NodeOutput properties)
-                    if hasattr(wanvacetovideo_13, 'positive'):
-                        pos_cond = wanvacetovideo_13.positive
-                        if hasattr(pos_cond, 'cpu'):
-                            pos_cond_filename = f"{output_dir}/wanvacetovideo_positive_cond_{timestamp}.npy"
-                            np.save(pos_cond_filename, pos_cond.cpu().numpy())
-                            print(f"         ✅ Saved positive conditioning: {pos_cond_filename}")
-                            print(f"            Shape: {pos_cond.shape}")
-                    
-                    if hasattr(wanvacetovideo_13, 'negative'):
-                        neg_cond = wanvacetovideo_13.negative
-                        if hasattr(neg_cond, 'cpu'):
-                            neg_cond_filename = f"{output_dir}/wanvacetovideo_negative_cond_{timestamp}.npy"
-                            np.save(neg_cond_filename, neg_cond.cpu().numpy())
-                            print(f"         ✅ Saved negative conditioning: {neg_cond_filename}")
-                            print(f"            Shape: {neg_cond.shape}")
-                    
-                    if hasattr(wanvacetovideo_13, 'latent'):
-                        latent = wanvacetovideo_13.latent
-                        if hasattr(latent, 'cpu'):
-                            latent_filename = f"{output_dir}/wanvacetovideo_latent_{timestamp}.npy"
-                            np.save(latent_filename, latent.cpu().numpy())
-                            print(f"         ✅ Saved latent: {latent_filename}")
-                            print(f"            Shape: {latent.shape}")
-                    
-                    if hasattr(wanvacetovideo_13, 'trim_latent'):
-                        trim_latent = wanvacetovideo_13.trim_latent
-                        trim_latent_filename = f"{output_dir}/wanvacetovideo_trim_latent_{timestamp}.npy"
-                        np.save(trim_latent_filename, np.array([trim_latent]))
-                        print(f"         ✅ Saved trim_latent: {trim_latent_filename}")
-                        print(f"            Value: {trim_latent}")
-                    
-                except Exception as save_error:
-                    print(f"         ❌ Error saving WanVaceToVideo output: {save_error}")
-                    import traceback
-                    traceback.print_exc()
                 
             except ImportError:
                 print("      ❌ WanVaceToVideo node not available")
@@ -3963,21 +3467,109 @@ def main():
                 print("      🔍 Check the error details above")
                 return
             
-            # === VAE ENCODE MONITORING SUMMARY ===
-            print(f"\n" + "="*80)
-            print(f"🔍 VAE ENCODE MONITORING SUMMARY")
-            print(f"="*80)
-            
-            # Print comprehensive VAE encode monitoring summary
-            vae_encode_monitor.print_comprehensive_summary()
-            print(f"="*80)
-            print(f"✅ Step 5 completed: WanVaceToVideo Node Execution with VAE Encode Monitoring")
+            print(f"✅ Step 5 completed: WanVaceToVideo Node Execution")
             
         except Exception as e:
             print(f"❌ ERROR during WanVaceToVideo execution: {e}")
             print("🔍 Cannot proceed with latent generation")
             return
         # === STEP 5 END: INITIAL LATENT GENERATION ===
+        
+        # === K-SAMPLER INPUT ANALYSIS ===
+        print("\n🎯 K-SAMPLER INPUT ANALYSIS:")
+        print("   📋 Analyzing inputs that will be used by K-Sampler:")
+        
+        try:
+            # Extract the specific outputs used by K-Sampler
+            positive_cond = get_value_at_index(wanvacetovideo_13, 0)
+            negative_cond = get_value_at_index(wanvacetovideo_13, 1)
+            latent_image = get_value_at_index(wanvacetovideo_13, 2)
+            
+            print(f"\n   📋 Positive Conditioning (K-Sampler input):")
+            print(f"      Type: {type(positive_cond).__name__}")
+            if hasattr(positive_cond, 'shape'):
+                print(f"      Shape: {positive_cond.shape}")
+                print(f"      Dtype: {positive_cond.dtype}")
+                print(f"      Device: {positive_cond.device}")
+                if hasattr(positive_cond, 'element_size'):
+                    memory_mb = positive_cond.numel() * positive_cond.element_size() / (1024**2)
+                    print(f"      Memory: {memory_mb:.2f} MB")
+                # Value glimpse
+                try:
+                    if hasattr(positive_cond, 'cpu'):
+                        cpu_tensor = positive_cond.cpu()
+                        min_val = cpu_tensor.min().item()
+                        max_val = cpu_tensor.max().item()
+                        mean_val = cpu_tensor.mean().item()
+                        print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                        # Show first few values
+                        flat_tensor = cpu_tensor.flatten()
+                        first_values = flat_tensor[:5].tolist()
+                        print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                except Exception as val_error:
+                    print(f"      Value glimpse: Could not compute ({val_error})")
+            else:
+                print(f"      Value: {positive_cond}")
+            
+            print(f"\n   📋 Negative Conditioning (K-Sampler input):")
+            print(f"      Type: {type(negative_cond).__name__}")
+            if hasattr(negative_cond, 'shape'):
+                print(f"      Shape: {negative_cond.shape}")
+                print(f"      Dtype: {negative_cond.dtype}")
+                print(f"      Device: {negative_cond.device}")
+                if hasattr(negative_cond, 'element_size'):
+                    memory_mb = negative_cond.numel() * negative_cond.element_size() / (1024**2)
+                    print(f"      Memory: {memory_mb:.2f} MB")
+                # Value glimpse
+                try:
+                    if hasattr(negative_cond, 'cpu'):
+                        cpu_tensor = negative_cond.cpu()
+                        min_val = cpu_tensor.min().item()
+                        max_val = cpu_tensor.max().item()
+                        mean_val = cpu_tensor.mean().item()
+                        print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                        # Show first few values
+                        flat_tensor = cpu_tensor.flatten()
+                        first_values = flat_tensor[:5].tolist()
+                        print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                except Exception as val_error:
+                    print(f"      Value glimpse: Could not compute ({val_error})")
+            else:
+                print(f"      Value: {negative_cond}")
+            
+            print(f"\n   📋 Latent Image (K-Sampler input):")
+            print(f"      Type: {type(latent_image).__name__}")
+            if hasattr(latent_image, 'shape'):
+                print(f"      Shape: {latent_image.shape}")
+                print(f"      Dtype: {latent_image.dtype}")
+                print(f"      Device: {latent_image.device}")
+                if hasattr(latent_image, 'element_size'):
+                    memory_mb = latent_image.numel() * latent_image.element_size() / (1024**2)
+                    print(f"      Memory: {memory_mb:.2f} MB")
+                # Value glimpse
+                try:
+                    if hasattr(latent_image, 'cpu'):
+                        cpu_tensor = latent_image.cpu()
+                        min_val = cpu_tensor.min().item()
+                        max_val = cpu_tensor.max().item()
+                        mean_val = cpu_tensor.mean().item()
+                        print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
+                        # Show first few values
+                        flat_tensor = cpu_tensor.flatten()
+                        first_values = flat_tensor[:5].tolist()
+                        print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
+                except Exception as val_error:
+                    print(f"      Value glimpse: Could not compute ({val_error})")
+            else:
+                print(f"      Value: {latent_image}")
+            
+            print(f"\n   ✅ K-Sampler inputs analyzed successfully")
+            
+        except Exception as extract_error:
+            print(f"   ❌ Error analyzing K-Sampler inputs: {extract_error}")
+            import traceback
+            traceback.print_exc()
+        
         ksampler = KSampler()
         ksampler_14 = ksampler.sample(
         seed=random.randint(1, 2**64),
