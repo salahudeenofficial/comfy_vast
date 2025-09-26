@@ -32,37 +32,34 @@ def attempt_vhs_import():
     pass
 
 # Add monitoring and debugging utilities
-# VAEEncodeMonitor class removed - no longer needed
-class ModelLoadingMonitor:
-    """Comprehensive monitoring for model loading steps"""
+class VAEEncodeMonitor:
+    """Specialized monitor for VAE .encode() calls with multi-threaded GPU monitoring"""
     
     def __init__(self):
-        self.baseline_ram = None
-        self.baseline_gpu = None
-        self.monitoring_data = {}
-        self.step_start_time = None
+        self.encode_calls = []
+        self.gpu_monitoring_active = False
+        self.gpu_monitor_thread = None
+        self.stop_gpu_monitoring_event = threading.Event()
+        self.gpu_peak_data = []
+        self.current_encode_call = None
         
-        # Create output directories for tensor dumps
-        self._create_output_directories()
+    def start_gpu_monitoring(self):
+        """Start continuous GPU monitoring in background thread"""
+        if self.gpu_monitoring_active:
+            return
+            
+        self.gpu_monitoring_active = True
+        self.stop_gpu_monitoring_event.clear()
+        self.gpu_peak_data = []
         
-        # Test tensor creation to verify directory works
-        self._test_tensor_creation()
+        self.gpu_monitor_thread = threading.Thread(
+            target=self._gpu_monitoring_worker,
+            daemon=True
+        )
+        self.gpu_monitor_thread.start()
+        print(f"      🔄 GPU monitoring thread started")
     
-    def _create_output_directories(self):
-        """Create output directories for tensor dumps and analysis"""
-        output_dirs = [
-            "./W_out",
-            "./W_out/step3"
-        ]
-        
-        for output_dir in output_dirs:
-            try:
-                os.makedirs(output_dir, exist_ok=True)
-                print(f"📁 Created output directory: {output_dir}")
-            except Exception as e:
-                print(f"⚠️  Warning: Could not create directory {output_dir}: {e}")
-    
-    def _test_tensor_creation(self):
+    def stop_gpu_monitoring(self):
         """Stop GPU monitoring thread"""
         if not self.gpu_monitoring_active:
             return
@@ -218,8 +215,75 @@ class ModelLoadingMonitor:
             print(f"      ❌ VAE.encode() call #{encode_call_id} failed: {e}")
             raise e
     
+    def _calculate_tensor_statistics(self, tensor, tensor_type="unknown"):
+        """Calculate comprehensive statistics for a tensor"""
+        if tensor is None:
+            return None
+            
+        try:
+            # Convert to float32 for calculations if needed
+            if tensor.dtype != torch.float32:
+                tensor_float = tensor.float()
+            else:
+                tensor_float = tensor
+            
+            # Calculate basic statistics
+            mean_val = torch.mean(tensor_float).item()
+            min_val = torch.min(tensor_float).item()
+            max_val = torch.max(tensor_float).item()
+            range_val = max_val - min_val
+            
+            # Calculate standard deviation
+            std_val = torch.std(tensor_float).item()
+            
+            # Calculate percentiles
+            tensor_flat = tensor_float.flatten()
+            sorted_tensor, _ = torch.sort(tensor_flat)
+            n = len(sorted_tensor)
+            
+            p25 = sorted_tensor[int(0.25 * n)].item()
+            p50 = sorted_tensor[int(0.50 * n)].item()  # median
+            p75 = sorted_tensor[int(0.75 * n)].item()
+            p95 = sorted_tensor[int(0.95 * n)].item()
+            p99 = sorted_tensor[int(0.99 * n)].item()
+            
+            # Check for NaN and Inf values
+            has_nan = torch.isnan(tensor_float).any().item()
+            has_inf = torch.isinf(tensor_float).any().item()
+            
+            # Calculate value distribution
+            zero_count = (tensor_float == 0).sum().item()
+            negative_count = (tensor_float < 0).sum().item()
+            positive_count = (tensor_float > 0).sum().item()
+            total_count = tensor_float.numel()
+            
+            return {
+                'mean': mean_val,
+                'min': min_val,
+                'max': max_val,
+                'range': range_val,
+                'std': std_val,
+                'median': p50,
+                'p25': p25,
+                'p75': p75,
+                'p95': p95,
+                'p99': p99,
+                'has_nan': has_nan,
+                'has_inf': has_inf,
+                'zero_count': zero_count,
+                'negative_count': negative_count,
+                'positive_count': positive_count,
+                'total_count': total_count,
+                'zero_ratio': zero_count / total_count if total_count > 0 else 0,
+                'negative_ratio': negative_count / total_count if total_count > 0 else 0,
+                'positive_ratio': positive_count / total_count if total_count > 0 else 0
+            }
+        except Exception as e:
+            print(f"      ⚠️  Error calculating tensor statistics for {tensor_type}: {e}")
+            return None
+
     def _analyze_encode_input(self, input_tensor, call_type):
-        """Analyze input tensor for encode call with comprehensive tensor statistics"""
+        """Analyze input tensor for encode call"""
         if input_tensor is None:
             return {
                 'shape': 'None',
@@ -228,7 +292,7 @@ class ModelLoadingMonitor:
                 'size_mb': 0,
                 'requires_tiling': False,
                 'tile_analysis': 'N/A',
-                'tensor_stats': 'N/A'
+                'tensor_stats': None
             }
         
         shape = input_tensor.shape
@@ -243,8 +307,8 @@ class ModelLoadingMonitor:
         requires_tiling = self._analyze_tiling_requirement(shape, call_type)
         tile_analysis = self._get_tile_analysis(shape, requires_tiling)
         
-        # Comprehensive tensor statistics
-        tensor_stats = self._calculate_tensor_statistics(input_tensor, "INPUT")
+        # Calculate tensor statistics
+        tensor_stats = self._calculate_tensor_statistics(input_tensor, "input")
         
         return {
             'shape': shape,
@@ -305,91 +369,8 @@ class ModelLoadingMonitor:
         
         return analysis
     
-    def _calculate_tensor_statistics(self, tensor, tensor_type):
-        """Calculate comprehensive tensor statistics including mean, range, and distribution"""
-        if tensor is None:
-            return {
-                'mean': 'N/A',
-                'std': 'N/A',
-                'min': 'N/A',
-                'max': 'N/A',
-                'range': 'N/A',
-                'median': 'N/A',
-                'percentiles': 'N/A',
-                'zero_count': 'N/A',
-                'negative_count': 'N/A',
-                'positive_count': 'N/A',
-                'nan_count': 'N/A',
-                'inf_count': 'N/A'
-            }
-        
-        try:
-            # Convert to float for calculations if needed
-            if tensor.dtype != torch.float32 and tensor.dtype != torch.float64:
-                tensor_float = tensor.float()
-            else:
-                tensor_float = tensor
-            
-            # Basic statistics
-            mean_val = tensor_float.mean().item()
-            std_val = tensor_float.std().item()
-            min_val = tensor_float.min().item()
-            max_val = tensor_float.max().item()
-            range_val = max_val - min_val
-            median_val = tensor_float.median().item()
-            
-            # Percentiles
-            percentiles = {
-                'p25': torch.quantile(tensor_float, 0.25).item(),
-                'p50': torch.quantile(tensor_float, 0.50).item(),
-                'p75': torch.quantile(tensor_float, 0.75).item(),
-                'p90': torch.quantile(tensor_float, 0.90).item(),
-                'p95': torch.quantile(tensor_float, 0.95).item(),
-                'p99': torch.quantile(tensor_float, 0.99).item()
-            }
-            
-            # Count statistics
-            zero_count = (tensor_float == 0).sum().item()
-            negative_count = (tensor_float < 0).sum().item()
-            positive_count = (tensor_float > 0).sum().item()
-            nan_count = torch.isnan(tensor_float).sum().item()
-            inf_count = torch.isinf(tensor_float).sum().item()
-            
-            return {
-                'mean': mean_val,
-                'std': std_val,
-                'min': min_val,
-                'max': max_val,
-                'range': range_val,
-                'median': median_val,
-                'percentiles': percentiles,
-                'zero_count': zero_count,
-                'negative_count': negative_count,
-                'positive_count': positive_count,
-                'nan_count': nan_count,
-                'inf_count': inf_count,
-                'tensor_type': tensor_type
-            }
-            
-        except Exception as e:
-            return {
-                'mean': f'ERROR: {str(e)}',
-                'std': 'N/A',
-                'min': 'N/A',
-                'max': 'N/A',
-                'range': 'N/A',
-                'median': 'N/A',
-                'percentiles': 'N/A',
-                'zero_count': 'N/A',
-                'negative_count': 'N/A',
-                'positive_count': 'N/A',
-                'nan_count': 'N/A',
-                'inf_count': 'N/A',
-                'tensor_type': tensor_type
-            }
-    
     def _analyze_encode_output(self, output_tensor):
-        """Analyze output tensor from encode call with comprehensive tensor statistics"""
+        """Analyze output tensor from encode call"""
         if output_tensor is None:
             return {
                 'shape': 'None',
@@ -397,7 +378,7 @@ class ModelLoadingMonitor:
                 'device': 'None',
                 'size_mb': 0,
                 'compression_ratio': 'N/A',
-                'tensor_stats': 'N/A'
+                'tensor_stats': None
             }
         
         shape = output_tensor.shape
@@ -411,8 +392,8 @@ class ModelLoadingMonitor:
         # Calculate compression ratio (if we have input info)
         compression_ratio = "N/A"
         
-        # Comprehensive tensor statistics
-        tensor_stats = self._calculate_tensor_statistics(output_tensor, "OUTPUT")
+        # Calculate tensor statistics
+        tensor_stats = self._calculate_tensor_statistics(output_tensor, "output")
         
         return {
             'shape': shape,
@@ -442,15 +423,17 @@ class ModelLoadingMonitor:
         print(f"         Tiled: {'YES' if input_info['requires_tiling'] else 'NO'}")
         
         # Input tensor statistics
-        if 'tensor_stats' in input_info and input_info['tensor_stats'] != 'N/A':
-            stats = input_info['tensor_stats']
-            print(f"         📊 INPUT TENSOR STATS:")
-            print(f"            Mean: {stats['mean']:.6f}")
-            print(f"            Range: [{stats['min']:.6f}, {stats['max']:.6f}] (span: {stats['range']:.6f})")
-            print(f"            Std: {stats['std']:.6f}, Median: {stats['median']:.6f}")
-            print(f"            Zero/Pos/Neg: {stats['zero_count']}/{stats['positive_count']}/{stats['negative_count']}")
-            if stats['nan_count'] > 0 or stats['inf_count'] > 0:
-                print(f"            ⚠️  NaN: {stats['nan_count']}, Inf: {stats['inf_count']}")
+        input_stats = input_info.get('tensor_stats')
+        if input_stats:
+            print(f"         📊 Input Tensor Stats:")
+            print(f"            Mean: {input_stats['mean']:.6f}")
+            print(f"            Range: [{input_stats['min']:.6f}, {input_stats['max']:.6f}] (span: {input_stats['range']:.6f})")
+            print(f"            Std: {input_stats['std']:.6f}")
+            print(f"            Median: {input_stats['median']:.6f}")
+            print(f"            Percentiles: P25={input_stats['p25']:.6f}, P75={input_stats['p75']:.6f}, P95={input_stats['p95']:.6f}, P99={input_stats['p99']:.6f}")
+            if input_stats['has_nan'] or input_stats['has_inf']:
+                print(f"            ⚠️  Contains NaN: {input_stats['has_nan']}, Inf: {input_stats['has_inf']}")
+            print(f"            Value Distribution: {input_stats['positive_ratio']:.1%} positive, {input_stats['negative_ratio']:.1%} negative, {input_stats['zero_ratio']:.1%} zero")
         
         # Output info
         output_info = encode_call_data['output_info']
@@ -458,21 +441,17 @@ class ModelLoadingMonitor:
             print(f"         Output: {output_info['shape']} ({output_info['size_mb']:.2f} MB)")
             
             # Output tensor statistics
-            if 'tensor_stats' in output_info and output_info['tensor_stats'] != 'N/A':
-                stats = output_info['tensor_stats']
-                print(f"         📊 OUTPUT TENSOR STATS:")
-                print(f"            Mean: {stats['mean']:.6f}")
-                print(f"            Range: [{stats['min']:.6f}, {stats['max']:.6f}] (span: {stats['range']:.6f})")
-                print(f"            Std: {stats['std']:.6f}, Median: {stats['median']:.6f}")
-                print(f"            Zero/Pos/Neg: {stats['zero_count']}/{stats['positive_count']}/{stats['negative_count']}")
-                if stats['nan_count'] > 0 or stats['inf_count'] > 0:
-                    print(f"            ⚠️  NaN: {stats['nan_count']}, Inf: {stats['inf_count']}")
-                
-                # Percentiles for detailed distribution analysis
-                if 'percentiles' in stats and stats['percentiles'] != 'N/A':
-                    p = stats['percentiles']
-                    print(f"            Percentiles: P25={p['p25']:.6f}, P50={p['p50']:.6f}, P75={p['p75']:.6f}")
-                    print(f"            High percentiles: P90={p['p90']:.6f}, P95={p['p95']:.6f}, P99={p['p99']:.6f}")
+            output_stats = output_info.get('tensor_stats')
+            if output_stats:
+                print(f"         📊 Output Tensor Stats:")
+                print(f"            Mean: {output_stats['mean']:.6f}")
+                print(f"            Range: [{output_stats['min']:.6f}, {output_stats['max']:.6f}] (span: {output_stats['range']:.6f})")
+                print(f"            Std: {output_stats['std']:.6f}")
+                print(f"            Median: {output_stats['median']:.6f}")
+                print(f"            Percentiles: P25={output_stats['p25']:.6f}, P75={output_stats['p75']:.6f}, P95={output_stats['p95']:.6f}, P99={output_stats['p99']:.6f}")
+                if output_stats['has_nan'] or output_stats['has_inf']:
+                    print(f"            ⚠️  Contains NaN: {output_stats['has_nan']}, Inf: {output_stats['has_inf']}")
+                print(f"            Value Distribution: {output_stats['positive_ratio']:.1%} positive, {output_stats['negative_ratio']:.1%} negative, {output_stats['zero_ratio']:.1%} zero")
         
         # GPU info
         peak_gpu = encode_call_data.get('peak_gpu')
@@ -536,76 +515,6 @@ class ModelLoadingMonitor:
                                if call['peak_gpu']['peak_allocated_mb'] == max_peak)
             print(f"      Highest Peak: Call #{max_peak_call['call_id']} ({max_peak_call['call_type']})")
         
-        # Tensor statistics analysis
-        print(f"\n📊 TENSOR STATISTICS ANALYSIS:")
-        successful_calls = [c for c in self.encode_calls if c['success']]
-        
-        if successful_calls:
-            # Collect all input and output statistics
-            input_stats = []
-            output_stats = []
-            
-            for call in successful_calls:
-                input_info = call.get('input_info', {})
-                output_info = call.get('output_info', {})
-                
-                if 'tensor_stats' in input_info and input_info['tensor_stats'] != 'N/A':
-                    input_stats.append(input_info['tensor_stats'])
-                
-                if 'tensor_stats' in output_info and output_info['tensor_stats'] != 'N/A':
-                    output_stats.append(output_info['tensor_stats'])
-            
-            # Input tensor statistics summary
-            if input_stats:
-                print(f"   📥 INPUT TENSOR STATISTICS ({len(input_stats)} tensors):")
-                input_means = [s['mean'] for s in input_stats if isinstance(s['mean'], (int, float))]
-                input_ranges = [s['range'] for s in input_stats if isinstance(s['range'], (int, float))]
-                input_mins = [s['min'] for s in input_stats if isinstance(s['min'], (int, float))]
-                input_maxs = [s['max'] for s in input_stats if isinstance(s['max'], (int, float))]
-                
-                if input_means:
-                    print(f"      Mean: {min(input_means):.6f} to {max(input_means):.6f} (avg: {sum(input_means)/len(input_means):.6f})")
-                    print(f"      Range: {min(input_ranges):.6f} to {max(input_ranges):.6f} (avg: {sum(input_ranges)/len(input_ranges):.6f})")
-                    print(f"      Min values: {min(input_mins):.6f} to {max(input_mins):.6f}")
-                    print(f"      Max values: {min(input_maxs):.6f} to {max(input_maxs):.6f}")
-                
-                # Check for problematic values
-                nan_count = sum(s.get('nan_count', 0) for s in input_stats)
-                inf_count = sum(s.get('inf_count', 0) for s in input_stats)
-                if nan_count > 0 or inf_count > 0:
-                    print(f"      ⚠️  PROBLEMATIC VALUES: {nan_count} NaN, {inf_count} Inf")
-            
-            # Output tensor statistics summary
-            if output_stats:
-                print(f"   📤 OUTPUT TENSOR STATISTICS ({len(output_stats)} tensors):")
-                output_means = [s['mean'] for s in output_stats if isinstance(s['mean'], (int, float))]
-                output_ranges = [s['range'] for s in output_stats if isinstance(s['range'], (int, float))]
-                output_mins = [s['min'] for s in output_stats if isinstance(s['min'], (int, float))]
-                output_maxs = [s['max'] for s in output_stats if isinstance(s['max'], (int, float))]
-                
-                if output_means:
-                    print(f"      Mean: {min(output_means):.6f} to {max(output_means):.6f} (avg: {sum(output_means)/len(output_means):.6f})")
-                    print(f"      Range: {min(output_ranges):.6f} to {max(output_ranges):.6f} (avg: {sum(output_ranges)/len(output_ranges):.6f})")
-                    print(f"      Min values: {min(output_mins):.6f} to {max(output_mins):.6f}")
-                    print(f"      Max values: {min(output_maxs):.6f} to {max(output_maxs):.6f}")
-                
-                # Check for problematic values
-                nan_count = sum(s.get('nan_count', 0) for s in output_stats)
-                inf_count = sum(s.get('inf_count', 0) for s in output_stats)
-                if nan_count > 0 or inf_count > 0:
-                    print(f"      ⚠️  PROBLEMATIC VALUES: {nan_count} NaN, {inf_count} Inf")
-            
-            # Input vs Output comparison
-            if input_stats and output_stats:
-                print(f"   🔄 INPUT vs OUTPUT COMPARISON:")
-                avg_input_mean = sum(s['mean'] for s in input_stats if isinstance(s['mean'], (int, float))) / len([s for s in input_stats if isinstance(s['mean'], (int, float))])
-                avg_output_mean = sum(s['mean'] for s in output_stats if isinstance(s['mean'], (int, float))) / len([s for s in output_stats if isinstance(s['mean'], (int, float))])
-                avg_input_range = sum(s['range'] for s in input_stats if isinstance(s['range'], (int, float))) / len([s for s in input_stats if isinstance(s['range'], (int, float))])
-                avg_output_range = sum(s['range'] for s in output_stats if isinstance(s['range'], (int, float))) / len([s for s in output_stats if isinstance(s['range'], (int, float))])
-                
-                print(f"      Mean shift: {avg_input_mean:.6f} → {avg_output_mean:.6f} (Δ: {avg_output_mean - avg_input_mean:+.6f})")
-                print(f"      Range change: {avg_input_range:.6f} → {avg_output_range:.6f} (Δ: {avg_output_range - avg_input_range:+.6f})")
-        
         # Tiling analysis
         print(f"\n🧩 TILING ANALYSIS:")
         tiled_calls = [c for c in self.encode_calls if c['input_info']['requires_tiling']]
@@ -620,6 +529,42 @@ class ModelLoadingMonitor:
                 print(f"      Call #{call['call_id']} ({call['call_type']}): {call['input_info']['shape']}")
                 print(f"         {call['input_info']['tile_analysis']}")
         
+        # Tensor statistics summary
+        print(f"\n📊 TENSOR STATISTICS SUMMARY:")
+        successful_calls_with_stats = [c for c in self.encode_calls if c['success'] and c['input_info'].get('tensor_stats')]
+        
+        if successful_calls_with_stats:
+            # Input tensor statistics
+            input_means = [c['input_info']['tensor_stats']['mean'] for c in successful_calls_with_stats]
+            input_ranges = [c['input_info']['tensor_stats']['range'] for c in successful_calls_with_stats]
+            input_stds = [c['input_info']['tensor_stats']['std'] for c in successful_calls_with_stats]
+            
+            print(f"   📥 INPUT TENSOR STATS:")
+            print(f"      Mean: {min(input_means):.6f} to {max(input_means):.6f} (avg: {sum(input_means)/len(input_means):.6f})")
+            print(f"      Range: {min(input_ranges):.6f} to {max(input_ranges):.6f} (avg: {sum(input_ranges)/len(input_ranges):.6f})")
+            print(f"      Std: {min(input_stds):.6f} to {max(input_stds):.6f} (avg: {sum(input_stds)/len(input_stds):.6f})")
+            
+            # Output tensor statistics
+            output_calls_with_stats = [c for c in successful_calls_with_stats if c['output_info'].get('tensor_stats')]
+            if output_calls_with_stats:
+                output_means = [c['output_info']['tensor_stats']['mean'] for c in output_calls_with_stats]
+                output_ranges = [c['output_info']['tensor_stats']['range'] for c in output_calls_with_stats]
+                output_stds = [c['output_info']['tensor_stats']['std'] for c in output_calls_with_stats]
+                
+                print(f"   📤 OUTPUT TENSOR STATS:")
+                print(f"      Mean: {min(output_means):.6f} to {max(output_means):.6f} (avg: {sum(output_means)/len(output_means):.6f})")
+                print(f"      Range: {min(output_ranges):.6f} to {max(output_ranges):.6f} (avg: {sum(output_ranges)/len(output_ranges):.6f})")
+                print(f"      Std: {min(output_stds):.6f} to {max(output_stds):.6f} (avg: {sum(output_stds)/len(output_stds):.6f})")
+                
+                # Compression analysis
+                print(f"   🔄 ENCODING COMPRESSION ANALYSIS:")
+                for i, call in enumerate(output_calls_with_stats):
+                    input_stats = call['input_info']['tensor_stats']
+                    output_stats = call['output_info']['tensor_stats']
+                    mean_compression = output_stats['mean'] / input_stats['mean'] if input_stats['mean'] != 0 else 0
+                    range_compression = output_stats['range'] / input_stats['range'] if input_stats['range'] != 0 else 0
+                    print(f"      Call #{call['call_id']}: Mean compression ratio: {mean_compression:.6f}, Range compression ratio: {range_compression:.6f}")
+
         # Detailed call breakdown
         print(f"\n📋 DETAILED CALL BREAKDOWN:")
         for i, call in enumerate(self.encode_calls):
@@ -631,8 +576,18 @@ class ModelLoadingMonitor:
             print(f"      Device: {call['input_info']['device']}")
             print(f"      Tiled: {'YES' if call['input_info']['requires_tiling'] else 'NO'}")
             
+            # Input tensor statistics
+            input_stats = call['input_info'].get('tensor_stats')
+            if input_stats:
+                print(f"      📊 Input Stats: Mean={input_stats['mean']:.6f}, Range=[{input_stats['min']:.6f}, {input_stats['max']:.6f}], Std={input_stats['std']:.6f}")
+            
             if call['success'] and call['output_info']:
                 print(f"         Output: {call['output_info']['shape']} ({call['output_info']['size_mb']:.2f} MB)")
+                
+                # Output tensor statistics
+                output_stats = call['output_info'].get('tensor_stats')
+                if output_stats:
+                    print(f"         📊 Output Stats: Mean={output_stats['mean']:.6f}, Range=[{output_stats['min']:.6f}, {output_stats['max']:.6f}], Std={output_stats['std']:.6f}")
             
             if call.get('peak_gpu'):
                 peak = call['peak_gpu']
@@ -2667,7 +2622,7 @@ class ModelLoadingMonitor:
 
 # Initialize the monitors
 model_monitor = ModelLoadingMonitor()
-# VAEEncodeMonitor removed - no longer needed
+vae_encode_monitor = VAEEncodeMonitor()
 
 
 def find_safu_files():
@@ -3006,30 +2961,6 @@ def main():
         print(f"   Video file exists: {'✅ YES' if video_file_exists else '❌ NO'}")
         print(f"   Image file exists: {'✅ YES' if image_file_exists else '❌ NO'}")
         
-        # If video file doesn't exist in current directory, try to find it using find_safu_files
-        if not video_file_exists:
-            print("   🔍 Video file not found in current directory, searching for safu files...")
-            safu_files = find_safu_files()
-            if "mp4" in safu_files:
-                video_file = safu_files["mp4"]
-                video_file_exists = os.path.exists(video_file)
-                print(f"   ✅ Found video file: {video_file}")
-                print(f"   Video file exists: {'✅ YES' if video_file_exists else '❌ NO'}")
-            else:
-                print("   ❌ No safu.mp4 found in any location")
-        
-        # If image file doesn't exist in current directory, try to find it using find_safu_files
-        if not image_file_exists:
-            print("   🔍 Image file not found in current directory, searching for safu files...")
-            safu_files = find_safu_files()
-            if "jpg" in safu_files:
-                image_file = safu_files["jpg"]
-                image_file_exists = os.path.exists(image_file)
-                print(f"   ✅ Found image file: {image_file}")
-                print(f"   Image file exists: {'✅ YES' if image_file_exists else '❌ NO'}")
-            else:
-                print("   ❌ No safu.jpg found in any location")
-        
         # List files in current directory and input directory for debugging
         try:
             current_files = os.listdir('.')
@@ -3265,70 +3196,64 @@ def main():
             print(f"💡 The LoRA file should be in: models/loras/lora.safetensors")
             return
         
-        # Apply LoRA with monitoring - COMMENTED OUT
-        # try:
-        #     print("\n🔧 APPLYING LORA TO MODELS...")
-        #     
-        #     # Start monitoring peak memory during LoRA application
-        #     # model_monitor.start_monitoring("lora_application")
-        #     
-        #     # Update peak memory before LoRA application
-        #     # model_monitor.update_peak_memory()
-        #     
-        #     loraloader = LoraLoader()
-        #     loraloader_24 = loraloader.load_lora(
-        #         lora_name="lora.safetensors",
-        #         strength_model=0.5000000000000001,
-        #         strength_clip=1,
-        #         model=unet_model_baseline,
-        #         clip=clip_model_baseline,
-        #     )
-        #     
-        #     # Update peak memory after LoRA application
-        #     # model_monitor.update_peak_memory()
-        #     
-        #     # Extract modified models from result
-        #     modified_unet = get_value_at_index(loraloader_24, 0)
-        #     modified_clip = get_value_at_index(loraloader_24, 1)
-        #     
-        #     # Update peak memory after model extraction
-        #     # model_monitor.update_peak_memory()
-        #     
-        #     # End monitoring and get peak memory summary
-        #     # elapsed_time = model_monitor.end_monitoring("lora_application", loraloader_24, "LoRA_Result")
-        #     # peak_memory_summary = model_monitor.get_peak_memory_summary()
-        #     
-        #     # Analyze LoRA application results
-        #     # print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
-        #     # lora_analysis = model_monitor.analyze_lora_application_results(
-        #     #     lora_baseline, 
-        #     #     modified_unet, 
-        #     #     modified_clip, 
-        #     #     loraloader_24
-        #     # )
-        #     
-        #     # Print comprehensive analysis
-        #     # model_monitor.print_lora_analysis_summary(lora_analysis)
-        #     
-        #     # Print peak memory information
-        #     # print(f"\n📊 PEAK MEMORY DURING LORA APPLICATION:")
-        #     # print(f"   🖥️  RAM Peak: {peak_memory_summary['ram_peak_mb']:.1f} MB")
-        #     # print(f"   🎮 GPU Allocated Peak: {peak_memory_summary['gpu_allocated_peak_mb']:.1f} MB")
-        #     # print(f"   🎮 GPU Reserved Peak: {peak_memory_summary['gpu_reserved_peak_mb']:.1f} MB")
-        #     # print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
-        #     
-        #     print("✅ Step 2 completed: LoRA Application")
-        #     
-        # except Exception as e:
-        #     print(f"❌ ERROR during LoRA application: {e}")
-        #     print("🔍 LoRA application failed - check error details above")
-        #     loraloader_24 = None
-        
-        # Use original models instead of LoRA-modified ones
-        print("\n🔧 SKIPPING LORA APPLICATION - USING ORIGINAL MODELS...")
-        modified_unet = unet_model_baseline
-        modified_clip = clip_model_baseline
-        print("✅ Step 2 skipped: Using original models (no LoRA applied)")
+        # Apply LoRA with monitoring
+        try:
+            print("\n🔧 APPLYING LORA TO MODELS...")
+            
+            # Start monitoring peak memory during LoRA application
+            # model_monitor.start_monitoring("lora_application")
+            
+            # Update peak memory before LoRA application
+            # model_monitor.update_peak_memory()
+            
+            loraloader = LoraLoader()
+            loraloader_24 = loraloader.load_lora(
+                lora_name="lora.safetensors",
+                strength_model=0.5000000000000001,
+                strength_clip=1,
+                model=unet_model_baseline,
+                clip=clip_model_baseline,
+            )
+            
+            # Update peak memory after LoRA application
+            # model_monitor.update_peak_memory()
+            
+            # Extract modified models from result
+            modified_unet = get_value_at_index(loraloader_24, 0)
+            modified_clip = get_value_at_index(loraloader_24, 1)
+            
+            # Update peak memory after model extraction
+            # model_monitor.update_peak_memory()
+            
+            # End monitoring and get peak memory summary
+            # elapsed_time = model_monitor.end_monitoring("lora_application", loraloader_24, "LoRA_Result")
+            # peak_memory_summary = model_monitor.get_peak_memory_summary()
+            
+            # Analyze LoRA application results
+            # print("\n🔍 ANALYZING LORA APPLICATION RESULTS...")
+            # lora_analysis = model_monitor.analyze_lora_application_results(
+            #     lora_baseline, 
+            #     modified_unet, 
+            #     modified_clip, 
+            #     loraloader_24
+            # )
+            
+            # Print comprehensive analysis
+            # model_monitor.print_lora_analysis_summary(lora_analysis)
+            
+            # Print peak memory information
+            # print(f"\n📊 PEAK MEMORY DURING LORA APPLICATION:")
+            # print(f"   🖥️  RAM Peak: {peak_memory_summary['ram_peak_mb']:.1f} MB")
+            # print(f"   🎮 GPU Allocated Peak: {peak_memory_summary['gpu_allocated_peak_mb']:.1f} MB")
+            # print(f"   🎮 GPU Reserved Peak: {peak_memory_summary['gpu_reserved_peak_mb']:.1f} MB")
+            # print(f"   ⏱️  Total Time: {elapsed_time:.3f} seconds")
+            
+            print("✅ Step 2 completed: LoRA Application")
+            
+        except Exception as e:
+            print(f"❌ ERROR during LoRA application: {e}")
+            print("🔍 LoRA application failed - check error details above")
+            loraloader_24 = None
             
         # === STEP 2 END: LORA APPLICATION ===
 
@@ -3341,7 +3266,7 @@ def main():
         # Capture baseline state before text encoding
         # print("\n🔍 CAPTURING BASELINE STATE BEFORE TEXT ENCODING...")
         
-        # Get the models (now using original models instead of LoRA-modified ones)
+        # Get the modified models from LoRA application
         if 'modified_unet' in locals() and 'modified_clip' in locals():
             # try:
             #     text_encoding_baseline = model_monitor.capture_text_encoding_baseline(
@@ -3365,8 +3290,8 @@ def main():
             #     text_encoding_baseline = None
             pass
         else:
-            print("❌ ERROR: Models not available")
-            print("🔍 Cannot proceed with text encoding - check model loading step")
+            print("❌ ERROR: Modified models not available from LoRA application")
+            print("🔍 Cannot proceed with text encoding - check LoRA application step")
             return
         
         # Define text prompts for encoding
@@ -3555,7 +3480,7 @@ def main():
         # === STEP 4 START: MODEL SAMPLING ===
         print("4. Applying ModelSamplingSD3 to UNET...")
         
-        # Get the models (now using original models instead of LoRA-modified ones)
+        # Get the modified models from LoRA application
         if 'modified_unet' in locals() and 'modified_clip' in locals():
             try:
                 # Apply ModelSamplingSD3 (using existing node)
@@ -3597,11 +3522,11 @@ def main():
         # === STEP 4 END: MODEL SAMPLING ===
 
         # === STEP 5 START: INITIAL LATENT GENERATION ===
-        print("5. Executing WanVaceToVideo node...")
+        print("5. Executing WanVaceToVideo node with VAE .encode() monitoring...")
         
-        # Execute WanVaceToVideo node
+        # Execute WanVaceToVideo node with VAE encode monitoring
         try:
-            print("\n🔧 EXECUTING WANVACETOVIDEO NODE...")
+            print("\n🔧 EXECUTING WANVACETOVIDEO NODE WITH VAE ENCODE MONITORING...")
             
             # Check if we have all required inputs
             required_inputs = {
@@ -3624,7 +3549,60 @@ def main():
                 print("🔍 Please ensure all previous steps completed successfully")
                 return
             
-            print(f"\n   ✅ All required inputs available - proceeding with WanVaceToVideo execution")
+            print(f"\n   ✅ All required inputs available - proceeding with VAE encode monitoring")
+            
+            # === VAE ENCODE MONITORING SETUP ===
+            print(f"\n🔍 SETTING UP VAE ENCODE MONITORING...")
+            
+            # Get VAE model for monitoring
+            vae_model = get_value_at_index(vaeloader_7, 0)
+            print(f"   🎨 VAE Model: {type(vae_model).__name__}")
+            
+            # Create a wrapper to intercept VAE encode calls
+            class VAEEncodeWrapper:
+                def __init__(self, original_vae, monitor):
+                    self.original_vae = original_vae
+                    self.monitor = monitor
+                    self.encode_call_counter = 0
+                
+                def encode(self, pixel_samples):
+                    """Intercept encode calls and monitor them"""
+                    self.encode_call_counter += 1
+                    call_id = self.encode_call_counter
+                    
+                    # Determine call type based on input
+                    if hasattr(pixel_samples, 'shape'):
+                        shape = pixel_samples.shape
+                        if len(shape) == 4:  # Standard image tensor
+                            if shape[0] == 1:  # Single image
+                                call_type = "Reference Image"
+                            else:
+                                call_type = "Video Frames"
+                        else:
+                            call_type = "Unknown Tensor"
+                    else:
+                        call_type = "Unknown Input"
+                    
+                    print(f"\n   🔍 INTERCEPTING VAE.encode() call #{call_id} ({call_type})")
+                    
+                    # Use the monitor to track this encode call
+                    return self.monitor.monitor_encode_call(
+                        self.original_vae, 
+                        pixel_samples, 
+                        call_id, 
+                        call_type
+                    )
+                
+                def __getattr__(self, name):
+                    """Delegate all other attributes to the original VAE"""
+                    return getattr(self.original_vae, name)
+            
+            # Wrap the VAE model with monitoring
+            monitored_vae = VAEEncodeWrapper(vae_model, vae_encode_monitor)
+            print(f"   ✅ VAE model wrapped with encode monitoring")
+            
+            # === EXECUTE WANVACETOVIDEO WITH MONITORED VAE ===
+            print(f"\n   🔧 EXECUTING WANVACETOVIDEO WITH MONITORED VAE...")
             
             try:
                 # Import WanVaceToVideo node
@@ -3635,54 +3613,12 @@ def main():
                 wanvacetovideo = WanVaceToVideo()
                 print("      ✅ WanVaceToVideo node instance created")
                 
-                # Create VAE wrapper for monitoring encode calls
-                print("      🔧 Creating VAE wrapper for encode monitoring...")
-                original_vae = get_value_at_index(vaeloader_7, 0)
+                # Temporarily replace the VAE in the node to use our monitored version
+                # We need to patch the node's VAE reference
+                original_vae_ref = get_value_at_index(vaeloader_7, 0)
                 
-                class VAEEncodeWrapper:
-                    def __init__(self, original_vae, monitor):
-                        self.original_vae = original_vae
-                        self.monitor = monitor
-                        self.encode_call_counter = 0
-                    
-                    def encode(self, pixel_samples):
-                        """Intercept encode calls and monitor them with tensor statistics"""
-                        self.encode_call_counter += 1
-                        call_id = self.encode_call_counter
-                        
-                        # Determine call type based on input
-                        if hasattr(pixel_samples, 'shape'):
-                            shape = pixel_samples.shape
-                            if len(shape) == 4:  # Standard image tensor
-                                if shape[0] == 1:  # Single image
-                                    call_type = "Reference Image"
-                                else:
-                                    call_type = "Video Frames"
-                            else:
-                                call_type = "Unknown Tensor"
-                        else:
-                            call_type = "Unknown Input"
-                        
-                        print(f"\n   🔍 INTERCEPTING VAE.encode() call #{call_id} ({call_type})")
-                        
-                        # Use the monitor to track this encode call with tensor statistics
-                        return self.monitor.monitor_encode_call(
-                            self.original_vae, 
-                            pixel_samples, 
-                            call_id, 
-                            call_type
-                        )
-                    
-                    def __getattr__(self, name):
-                        """Delegate all other attributes to the original VAE"""
-                        return getattr(self.original_vae, name)
-                
-                # Wrap the VAE model with monitoring
-                monitored_vae = VAEEncodeWrapper(original_vae, model_monitor)
-                print("      ✅ VAE model wrapped with comprehensive encode monitoring")
-                
-                # Execute the node with monitored VAE
-                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED...")
+                # Execute the node with our monitored VAE
+                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED with monitored VAE...")
                 
                 wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
                     width=480,
@@ -3692,12 +3628,21 @@ def main():
                     strength=1,
                     positive=get_value_at_index(positive_cond_tuple, 0),
                     negative=get_value_at_index(negative_cond_tuple, 0),
-                    vae=monitored_vae,  # Use monitored VAE instead of original
+                    vae=monitored_vae,  # Use our monitored VAE
                     control_video=get_value_at_index(vhs_loadvideo_1, 0),
                     reference_image=get_value_at_index(loadimage_4, 0),
                 )
                 
                 print("      ✅ WanVaceToVideo node executed successfully!")
+                print(f"      📊 Output type: {type(wanvacetovideo_13).__name__}")
+                
+                # Show output details if available
+                if hasattr(wanvacetovideo_13, 'shape'):
+                    print(f"      📐 Output shape: {wanvacetovideo_13.shape}")
+                elif hasattr(wanvacetovideo_13, '__len__'):
+                    print(f"      📐 Output length: {len(wanvacetovideo_13)}")
+                    if len(wanvacetovideo_13) > 0 and hasattr(wanvacetovideo_13[0], 'shape'):
+                        print(f"      📐 First output shape: {wanvacetovideo_13[0].shape}")
                 
             except ImportError:
                 print("      ❌ WanVaceToVideo node not available")
@@ -3708,365 +3653,54 @@ def main():
                 print("      🔍 Check the error details above")
                 return
             
-            print(f"✅ Step 5 completed: WanVaceToVideo Node Execution")
+            # === VAE ENCODE MONITORING SUMMARY ===
+            print(f"\n" + "="*80)
+            print(f"🔍 VAE ENCODE MONITORING SUMMARY")
+            print(f"="*80)
+            
+            # Print comprehensive VAE encode monitoring summary
+            vae_encode_monitor.print_comprehensive_summary()
+            
+            print(f"="*80)
+            print(f"✅ Step 5 completed: WanVaceToVideo Node Execution with VAE Encode Monitoring")
             
         except Exception as e:
             print(f"❌ ERROR during WanVaceToVideo execution: {e}")
             print("🔍 Cannot proceed with latent generation")
             return
         # === STEP 5 END: INITIAL LATENT GENERATION ===
-        
-        # === K-SAMPLER INPUT ANALYSIS ===
-        print("\n🎯 K-SAMPLER INPUT ANALYSIS:")
-        print("   📋 Analyzing inputs that will be used by K-Sampler:")
-        
-        try:
-            # Extract the specific outputs used by K-Sampler
-            positive_cond = get_value_at_index(wanvacetovideo_13, 0)
-            negative_cond = get_value_at_index(wanvacetovideo_13, 1)
-            latent_image = get_value_at_index(wanvacetovideo_13, 2)
-            
-            print(f"\n   📋 Positive Conditioning (K-Sampler input):")
-            print(f"      Type: {type(positive_cond).__name__}")
-            
-            # Handle complex nested structures
-            if isinstance(positive_cond, list) and len(positive_cond) > 0:
-                print(f"      List length: {len(positive_cond)}")
-                
-                # Extract all tensor shapes from nested structure
-                tensor_count = 0
-                total_memory = 0
-                
-                def extract_tensor_info(obj, depth=0):
-                    nonlocal tensor_count, total_memory
-                    indent = "      " + "  " * depth
-                    
-                    if hasattr(obj, 'shape'):
-                        tensor_count += 1
-                        print(f"{indent}Tensor {tensor_count}:")
-                        print(f"{indent}  Shape: {obj.shape}")
-                        print(f"{indent}  Dtype: {obj.dtype}")
-                        print(f"{indent}  Device: {obj.device}")
-                        if hasattr(obj, 'element_size'):
-                            memory_mb = obj.numel() * obj.element_size() / (1024**2)
-                            total_memory += memory_mb
-                            print(f"{indent}  Memory: {memory_mb:.2f} MB")
-                        # Value glimpse
-                        try:
-                            if hasattr(obj, 'cpu'):
-                                cpu_tensor = obj.cpu()
-                                min_val = cpu_tensor.min().item()
-                                max_val = cpu_tensor.max().item()
-                                mean_val = cpu_tensor.mean().item()
-                                print(f"{indent}  Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                # Show first few values
-                                flat_tensor = cpu_tensor.flatten()
-                                first_values = flat_tensor[:5].tolist()
-                                print(f"{indent}  First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                        except Exception as val_error:
-                            print(f"{indent}  Value glimpse: Could not compute ({val_error})")
-                        return
-                    
-                    if isinstance(obj, (list, tuple)):
-                        for i, item in enumerate(obj):
-                            if depth < 3:  # Limit recursion depth
-                                extract_tensor_info(item, depth + 1)
-                    elif isinstance(obj, dict):
-                        for key, value in obj.items():
-                            if depth < 3:  # Limit recursion depth
-                                print(f"{indent}Key '{key}': {type(value).__name__}")
-                                if hasattr(value, 'shape'):
-                                    print(f"{indent}  -> Contains tensor with shape: {value.shape}")
-                                elif isinstance(value, (list, tuple)) and len(value) > 0:
-                                    print(f"{indent}  -> Contains {len(value)} items")
-                                    # For VACE keys, show more detail about what's inside
-                                    if key in ['vace_frames', 'vace_mask', 'vace_strength']:
-                                        for i, item in enumerate(value):
-                                            if hasattr(item, 'shape'):
-                                                print(f"{indent}    Item {i}: Tensor with shape {item.shape}")
-                                                # Count VACE tensors as well
-                                                tensor_count += 1
-                                                print(f"{indent}      Tensor {tensor_count}:")
-                                                print(f"{indent}        Shape: {item.shape}")
-                                                print(f"{indent}        Dtype: {item.dtype}")
-                                                print(f"{indent}        Device: {item.device}")
-                                                if hasattr(item, 'element_size'):
-                                                    memory_mb = item.numel() * item.element_size() / (1024**2)
-                                                    total_memory += memory_mb
-                                                    print(f"{indent}        Memory: {memory_mb:.2f} MB")
-                                                # Value glimpse for VACE tensors
-                                                try:
-                                                    if hasattr(item, 'cpu'):
-                                                        cpu_tensor = item.cpu()
-                                                        min_val = cpu_tensor.min().item()
-                                                        max_val = cpu_tensor.max().item()
-                                                        mean_val = cpu_tensor.mean().item()
-                                                        print(f"{indent}        Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                                        # Show first few values
-                                                        flat_tensor = cpu_tensor.flatten()
-                                                        first_values = flat_tensor[:5].tolist()
-                                                        print(f"{indent}        First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                                                except Exception as val_error:
-                                                    print(f"{indent}        Value glimpse: Could not compute ({val_error})")
-                                            else:
-                                                print(f"{indent}    Item {i}: {type(item).__name__} = {str(item)[:30]}...")
-                                elif value is None:
-                                    print(f"{indent}  -> None")
-                                else:
-                                    print(f"{indent}  -> Value: {str(value)[:50]}...")
-                                extract_tensor_info(value, depth + 1)
-                
-                extract_tensor_info(positive_cond)
-                print(f"      Total tensors found: {tensor_count}")
-                print(f"      Total memory: {total_memory:.2f} MB")
-                
-                # Verify tensor count (VACE enhancement adds additional tensors)
-                if tensor_count == 1:
-                    print(f"      ✅ VERIFIED: Only 1 tensor found (basic text conditioning)")
-                elif tensor_count == 3:
-                    print(f"      ✅ VERIFIED: 3 tensors found (text + VACE frames + VACE mask)")
-                else:
-                    print(f"      ⚠️  WARNING: Found {tensor_count} tensors (expected 1 or 3)")
-            elif hasattr(positive_cond, 'shape'):
-                print(f"      Shape: {positive_cond.shape}")
-                print(f"      Dtype: {positive_cond.dtype}")
-                print(f"      Device: {positive_cond.device}")
-                if hasattr(positive_cond, 'element_size'):
-                    memory_mb = positive_cond.numel() * positive_cond.element_size() / (1024**2)
-                    print(f"      Memory: {memory_mb:.2f} MB")
-                # Value glimpse
-                try:
-                    if hasattr(positive_cond, 'cpu'):
-                        cpu_tensor = positive_cond.cpu()
-                        min_val = cpu_tensor.min().item()
-                        max_val = cpu_tensor.max().item()
-                        mean_val = cpu_tensor.mean().item()
-                        print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                        # Show first few values
-                        flat_tensor = cpu_tensor.flatten()
-                        first_values = flat_tensor[:5].tolist()
-                        print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                except Exception as val_error:
-                    print(f"      Value glimpse: Could not compute ({val_error})")
-            else:
-                print(f"      Value: {str(positive_cond)[:100]}...")
-            
-            print(f"\n   📋 Negative Conditioning (K-Sampler input):")
-            print(f"      Type: {type(negative_cond).__name__}")
-            
-            # Handle complex nested structures
-            if isinstance(negative_cond, list) and len(negative_cond) > 0:
-                print(f"      List length: {len(negative_cond)}")
-                
-                # Extract all tensor shapes from nested structure
-                tensor_count = 0
-                total_memory = 0
-                
-                def extract_tensor_info(obj, depth=0):
-                    nonlocal tensor_count, total_memory
-                    indent = "      " + "  " * depth
-                    
-                    if hasattr(obj, 'shape'):
-                        tensor_count += 1
-                        print(f"{indent}Tensor {tensor_count}:")
-                        print(f"{indent}  Shape: {obj.shape}")
-                        print(f"{indent}  Dtype: {obj.dtype}")
-                        print(f"{indent}  Device: {obj.device}")
-                        if hasattr(obj, 'element_size'):
-                            memory_mb = obj.numel() * obj.element_size() / (1024**2)
-                            total_memory += memory_mb
-                            print(f"{indent}  Memory: {memory_mb:.2f} MB")
-                        # Value glimpse
-                        try:
-                            if hasattr(obj, 'cpu'):
-                                cpu_tensor = obj.cpu()
-                                min_val = cpu_tensor.min().item()
-                                max_val = cpu_tensor.max().item()
-                                mean_val = cpu_tensor.mean().item()
-                                print(f"{indent}  Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                # Show first few values
-                                flat_tensor = cpu_tensor.flatten()
-                                first_values = flat_tensor[:5].tolist()
-                                print(f"{indent}  First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                        except Exception as val_error:
-                            print(f"{indent}  Value glimpse: Could not compute ({val_error})")
-                        return
-                    
-                    if isinstance(obj, (list, tuple)):
-                        for i, item in enumerate(obj):
-                            if depth < 3:  # Limit recursion depth
-                                extract_tensor_info(item, depth + 1)
-                    elif isinstance(obj, dict):
-                        for key, value in obj.items():
-                            if depth < 3:  # Limit recursion depth
-                                print(f"{indent}Key '{key}': {type(value).__name__}")
-                                if hasattr(value, 'shape'):
-                                    print(f"{indent}  -> Contains tensor with shape: {value.shape}")
-                                elif isinstance(value, (list, tuple)) and len(value) > 0:
-                                    print(f"{indent}  -> Contains {len(value)} items")
-                                    # For VACE keys, show more detail about what's inside
-                                    if key in ['vace_frames', 'vace_mask', 'vace_strength']:
-                                        for i, item in enumerate(value):
-                                            if hasattr(item, 'shape'):
-                                                print(f"{indent}    Item {i}: Tensor with shape {item.shape}")
-                                                # Count VACE tensors as well
-                                                tensor_count += 1
-                                                print(f"{indent}      Tensor {tensor_count}:")
-                                                print(f"{indent}        Shape: {item.shape}")
-                                                print(f"{indent}        Dtype: {item.dtype}")
-                                                print(f"{indent}        Device: {item.device}")
-                                                if hasattr(item, 'element_size'):
-                                                    memory_mb = item.numel() * item.element_size() / (1024**2)
-                                                    total_memory += memory_mb
-                                                    print(f"{indent}        Memory: {memory_mb:.2f} MB")
-                                                # Value glimpse for VACE tensors
-                                                try:
-                                                    if hasattr(item, 'cpu'):
-                                                        cpu_tensor = item.cpu()
-                                                        min_val = cpu_tensor.min().item()
-                                                        max_val = cpu_tensor.max().item()
-                                                        mean_val = cpu_tensor.mean().item()
-                                                        print(f"{indent}        Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                                        # Show first few values
-                                                        flat_tensor = cpu_tensor.flatten()
-                                                        first_values = flat_tensor[:5].tolist()
-                                                        print(f"{indent}        First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                                                except Exception as val_error:
-                                                    print(f"{indent}        Value glimpse: Could not compute ({val_error})")
-                                            else:
-                                                print(f"{indent}    Item {i}: {type(item).__name__} = {str(item)[:30]}...")
-                                elif value is None:
-                                    print(f"{indent}  -> None")
-                                else:
-                                    print(f"{indent}  -> Value: {str(value)[:50]}...")
-                                extract_tensor_info(value, depth + 1)
-                
-                extract_tensor_info(negative_cond)
-                print(f"      Total tensors found: {tensor_count}")
-                print(f"      Total memory: {total_memory:.2f} MB")
-                
-                # Verify tensor count (VACE enhancement adds additional tensors)
-                if tensor_count == 1:
-                    print(f"      ✅ VERIFIED: Only 1 tensor found (basic text conditioning)")
-                elif tensor_count == 3:
-                    print(f"      ✅ VERIFIED: 3 tensors found (text + VACE frames + VACE mask)")
-                else:
-                    print(f"      ⚠️  WARNING: Found {tensor_count} tensors (expected 1 or 3)")
-            elif hasattr(negative_cond, 'shape'):
-                print(f"      Shape: {negative_cond.shape}")
-                print(f"      Dtype: {negative_cond.dtype}")
-                print(f"      Device: {negative_cond.device}")
-                if hasattr(negative_cond, 'element_size'):
-                    memory_mb = negative_cond.numel() * negative_cond.element_size() / (1024**2)
-                    print(f"      Memory: {memory_mb:.2f} MB")
-                # Value glimpse
-                try:
-                    if hasattr(negative_cond, 'cpu'):
-                        cpu_tensor = negative_cond.cpu()
-                        min_val = cpu_tensor.min().item()
-                        max_val = cpu_tensor.max().item()
-                        mean_val = cpu_tensor.mean().item()
-                        print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                        # Show first few values
-                        flat_tensor = cpu_tensor.flatten()
-                        first_values = flat_tensor[:5].tolist()
-                        print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                except Exception as val_error:
-                    print(f"      Value glimpse: Could not compute ({val_error})")
-            else:
-                print(f"      Value: {str(negative_cond)[:100]}...")
-            
-            print(f"\n   📋 Latent Image (K-Sampler input):")
-            print(f"      Type: {type(latent_image).__name__}")
-            
-            # Handle complex nested structures
-            if isinstance(latent_image, dict):
-                print(f"      Dict keys: {list(latent_image.keys())}")
-                if 'samples' in latent_image:
-                    samples = latent_image['samples']
-                    print(f"      Samples type: {type(samples).__name__}")
-                    if hasattr(samples, 'shape'):
-                        print(f"      Shape: {samples.shape}")
-                        print(f"      Dtype: {samples.dtype}")
-                        print(f"      Device: {samples.device}")
-                        if hasattr(samples, 'element_size'):
-                            memory_mb = samples.numel() * samples.element_size() / (1024**2)
-                            print(f"      Memory: {memory_mb:.2f} MB")
-                        # Value glimpse
-                        try:
-                            if hasattr(samples, 'cpu'):
-                                cpu_tensor = samples.cpu()
-                                min_val = cpu_tensor.min().item()
-                                max_val = cpu_tensor.max().item()
-                                mean_val = cpu_tensor.mean().item()
-                                print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                                # Show first few values
-                                flat_tensor = cpu_tensor.flatten()
-                                first_values = flat_tensor[:5].tolist()
-                                print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                        except Exception as val_error:
-                            print(f"      Value glimpse: Could not compute ({val_error})")
-            elif hasattr(latent_image, 'shape'):
-                print(f"      Shape: {latent_image.shape}")
-                print(f"      Dtype: {latent_image.dtype}")
-                print(f"      Device: {latent_image.device}")
-                if hasattr(latent_image, 'element_size'):
-                    memory_mb = latent_image.numel() * latent_image.element_size() / (1024**2)
-                    print(f"      Memory: {memory_mb:.2f} MB")
-                # Value glimpse
-                try:
-                    if hasattr(latent_image, 'cpu'):
-                        cpu_tensor = latent_image.cpu()
-                        min_val = cpu_tensor.min().item()
-                        max_val = cpu_tensor.max().item()
-                        mean_val = cpu_tensor.mean().item()
-                        print(f"      Value Range: [{min_val:.4f}, {max_val:.4f}], Mean: {mean_val:.4f}")
-                        # Show first few values
-                        flat_tensor = cpu_tensor.flatten()
-                        first_values = flat_tensor[:5].tolist()
-                        print(f"      First 5 values: {[f'{v:.4f}' for v in first_values]}")
-                except Exception as val_error:
-                    print(f"      Value glimpse: Could not compute ({val_error})")
-            else:
-                print(f"      Value: {str(latent_image)[:100]}...")
-            
-            print(f"\n   ✅ K-Sampler inputs analyzed successfully")
-            
-        except Exception as extract_error:
-            print(f"   ❌ Error analyzing K-Sampler inputs: {extract_error}")
-            import traceback
-            traceback.print_exc()
-        
-        ksampler = KSampler()
-        ksampler_14 = ksampler.sample(
-        seed=random.randint(1, 2**64),
-        steps=4,
-        cfg=1,
-        sampler_name="ddim",
-        scheduler="normal",
-        denoise=1,
-        model=modified_unet_sampled,
-        positive=get_value_at_index(wanvacetovideo_13, 0),
-        negative=get_value_at_index(wanvacetovideo_13, 1),
-        latent_image=get_value_at_index(wanvacetovideo_13, 2),
-        )
-        
-        # === STEP 6 END: K-SAMPLER ===
-        print("="*80)
-        print("✅ Step 6 completed: K-Sampler")
 
-        # === VAE ENCODE MONITORING SUMMARY ===
+        # Stop execution after step 5 for debugging purposes
+        print("\n🛑 STOPPING EXECUTION AFTER STEP 5 (WANVACETOVIDEO NODE EXECUTION)")
+        print("🔍 All WanVaceToVideo node execution information has been displayed above.")
+        print("📊 The node has been executed with the inputs from previous steps.")
+        print("🔍 Step 1: Model Loading - COMPLETED (monitoring disabled)")
+        print("🔍 Step 2: LoRA Application - COMPLETED (monitoring disabled)")
+        print("🔍 Step 3: Text Encoding - COMPLETED (monitoring disabled)")
+        print("🔍 Step 4: Model Sampling - COMPLETED (monitoring disabled)")
+        print("🔍 Step 5: WanVaceToVideo Node Execution - COMPLETED")
+        print("🔍 Steps 6-9: SKIPPED for debugging purposes")
+        
+        # === FINAL MONITORING SUMMARY ===
         print("\n" + "="*80)
-        print("🔍 VAE ENCODE MONITORING SUMMARY")
+        print("🔍 FINAL WORKFLOW MONITORING SUMMARY")
         print("="*80)
         
-        # Print comprehensive VAE encode monitoring summary
-        model_monitor.print_comprehensive_summary()
+        print(f"\n🔍 BASIC WORKFLOW COMPLETION STATUS:")
+        print(f"   ✅ Step 1: Model Loading - COMPLETED")
+        print(f"   ✅ Step 2: LoRA Application - COMPLETED")
+        print(f"   ✅ Step 3: Text Encoding - COMPLETED")
+        print(f"   ✅ Step 4: Model Sampling - COMPLETED")
+        print(f"   ✅ Step 5: WanVaceToVideo Node Execution - COMPLETED")
+        print(f"\n💡 WanVaceToVideo node executed successfully with:")
+        print(f"   📐 Dimensions: 480x832, 37 frames, batch_size=1")
+        print(f"   🎯 Strength: 1.0")
+        print(f"   🔤 Positive/Negative conditioning from Step 3")
+        print(f"   🎨 VAE from Step 1")
+        print(f"   🎥 Control video from Step 1 (first 37 frames)")
+        print(f"   🖼️  Reference image from Step 1")
         
         print("="*80)
-        print("✅ Workflow execution completed successfully!")
-        print("="*80)
-
         
         return
 
