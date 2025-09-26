@@ -219,7 +219,7 @@ class ModelLoadingMonitor:
             raise e
     
     def _analyze_encode_input(self, input_tensor, call_type):
-        """Analyze input tensor for encode call"""
+        """Analyze input tensor for encode call with comprehensive tensor statistics"""
         if input_tensor is None:
             return {
                 'shape': 'None',
@@ -227,7 +227,8 @@ class ModelLoadingMonitor:
                 'device': 'None',
                 'size_mb': 0,
                 'requires_tiling': False,
-                'tile_analysis': 'N/A'
+                'tile_analysis': 'N/A',
+                'tensor_stats': 'N/A'
             }
         
         shape = input_tensor.shape
@@ -242,6 +243,9 @@ class ModelLoadingMonitor:
         requires_tiling = self._analyze_tiling_requirement(shape, call_type)
         tile_analysis = self._get_tile_analysis(shape, requires_tiling)
         
+        # Comprehensive tensor statistics
+        tensor_stats = self._calculate_tensor_statistics(input_tensor, "INPUT")
+        
         return {
             'shape': shape,
             'dtype': dtype,
@@ -249,7 +253,8 @@ class ModelLoadingMonitor:
             'size_mb': size_mb,
             'num_elements': num_elements,
             'requires_tiling': requires_tiling,
-            'tile_analysis': tile_analysis
+            'tile_analysis': tile_analysis,
+            'tensor_stats': tensor_stats
         }
     
     def _analyze_tiling_requirement(self, shape, call_type):
@@ -300,15 +305,99 @@ class ModelLoadingMonitor:
         
         return analysis
     
+    def _calculate_tensor_statistics(self, tensor, tensor_type):
+        """Calculate comprehensive tensor statistics including mean, range, and distribution"""
+        if tensor is None:
+            return {
+                'mean': 'N/A',
+                'std': 'N/A',
+                'min': 'N/A',
+                'max': 'N/A',
+                'range': 'N/A',
+                'median': 'N/A',
+                'percentiles': 'N/A',
+                'zero_count': 'N/A',
+                'negative_count': 'N/A',
+                'positive_count': 'N/A',
+                'nan_count': 'N/A',
+                'inf_count': 'N/A'
+            }
+        
+        try:
+            # Convert to float for calculations if needed
+            if tensor.dtype != torch.float32 and tensor.dtype != torch.float64:
+                tensor_float = tensor.float()
+            else:
+                tensor_float = tensor
+            
+            # Basic statistics
+            mean_val = tensor_float.mean().item()
+            std_val = tensor_float.std().item()
+            min_val = tensor_float.min().item()
+            max_val = tensor_float.max().item()
+            range_val = max_val - min_val
+            median_val = tensor_float.median().item()
+            
+            # Percentiles
+            percentiles = {
+                'p25': torch.quantile(tensor_float, 0.25).item(),
+                'p50': torch.quantile(tensor_float, 0.50).item(),
+                'p75': torch.quantile(tensor_float, 0.75).item(),
+                'p90': torch.quantile(tensor_float, 0.90).item(),
+                'p95': torch.quantile(tensor_float, 0.95).item(),
+                'p99': torch.quantile(tensor_float, 0.99).item()
+            }
+            
+            # Count statistics
+            zero_count = (tensor_float == 0).sum().item()
+            negative_count = (tensor_float < 0).sum().item()
+            positive_count = (tensor_float > 0).sum().item()
+            nan_count = torch.isnan(tensor_float).sum().item()
+            inf_count = torch.isinf(tensor_float).sum().item()
+            
+            return {
+                'mean': mean_val,
+                'std': std_val,
+                'min': min_val,
+                'max': max_val,
+                'range': range_val,
+                'median': median_val,
+                'percentiles': percentiles,
+                'zero_count': zero_count,
+                'negative_count': negative_count,
+                'positive_count': positive_count,
+                'nan_count': nan_count,
+                'inf_count': inf_count,
+                'tensor_type': tensor_type
+            }
+            
+        except Exception as e:
+            return {
+                'mean': f'ERROR: {str(e)}',
+                'std': 'N/A',
+                'min': 'N/A',
+                'max': 'N/A',
+                'range': 'N/A',
+                'median': 'N/A',
+                'percentiles': 'N/A',
+                'zero_count': 'N/A',
+                'negative_count': 'N/A',
+                'positive_count': 'N/A',
+                'nan_count': 'N/A',
+                'inf_count': 'N/A',
+                'tensor_type': tensor_type
+            }
+    
     def _analyze_encode_output(self, output_tensor):
-        """Analyze output tensor from encode call"""
+        """Analyze output tensor from encode call with comprehensive tensor statistics"""
         if output_tensor is None:
             return {
                 'shape': 'None',
                 'dtype': 'None',
                 'device': 'None',
                 'size_mb': 0,
-                'compression_ratio': 'N/A'
+                'compression_ratio': 'N/A',
+                'tensor_stats': 'N/A'
             }
         
         shape = output_tensor.shape
@@ -322,13 +411,17 @@ class ModelLoadingMonitor:
         # Calculate compression ratio (if we have input info)
         compression_ratio = "N/A"
         
+        # Comprehensive tensor statistics
+        tensor_stats = self._calculate_tensor_statistics(output_tensor, "OUTPUT")
+        
         return {
             'shape': shape,
             'dtype': dtype,
             'device': device,
             'size_mb': size_mb,
             'num_elements': num_elements,
-            'compression_ratio': compression_ratio
+            'compression_ratio': compression_ratio,
+            'tensor_stats': tensor_stats
         }
     
     def _print_encode_call_summary(self, encode_call_data):
@@ -348,10 +441,38 @@ class ModelLoadingMonitor:
         print(f"         Device: {input_info['device']}")
         print(f"         Tiled: {'YES' if input_info['requires_tiling'] else 'NO'}")
         
+        # Input tensor statistics
+        if 'tensor_stats' in input_info and input_info['tensor_stats'] != 'N/A':
+            stats = input_info['tensor_stats']
+            print(f"         📊 INPUT TENSOR STATS:")
+            print(f"            Mean: {stats['mean']:.6f}")
+            print(f"            Range: [{stats['min']:.6f}, {stats['max']:.6f}] (span: {stats['range']:.6f})")
+            print(f"            Std: {stats['std']:.6f}, Median: {stats['median']:.6f}")
+            print(f"            Zero/Pos/Neg: {stats['zero_count']}/{stats['positive_count']}/{stats['negative_count']}")
+            if stats['nan_count'] > 0 or stats['inf_count'] > 0:
+                print(f"            ⚠️  NaN: {stats['nan_count']}, Inf: {stats['inf_count']}")
+        
         # Output info
         output_info = encode_call_data['output_info']
         if output_info:
             print(f"         Output: {output_info['shape']} ({output_info['size_mb']:.2f} MB)")
+            
+            # Output tensor statistics
+            if 'tensor_stats' in output_info and output_info['tensor_stats'] != 'N/A':
+                stats = output_info['tensor_stats']
+                print(f"         📊 OUTPUT TENSOR STATS:")
+                print(f"            Mean: {stats['mean']:.6f}")
+                print(f"            Range: [{stats['min']:.6f}, {stats['max']:.6f}] (span: {stats['range']:.6f})")
+                print(f"            Std: {stats['std']:.6f}, Median: {stats['median']:.6f}")
+                print(f"            Zero/Pos/Neg: {stats['zero_count']}/{stats['positive_count']}/{stats['negative_count']}")
+                if stats['nan_count'] > 0 or stats['inf_count'] > 0:
+                    print(f"            ⚠️  NaN: {stats['nan_count']}, Inf: {stats['inf_count']}")
+                
+                # Percentiles for detailed distribution analysis
+                if 'percentiles' in stats and stats['percentiles'] != 'N/A':
+                    p = stats['percentiles']
+                    print(f"            Percentiles: P25={p['p25']:.6f}, P50={p['p50']:.6f}, P75={p['p75']:.6f}")
+                    print(f"            High percentiles: P90={p['p90']:.6f}, P95={p['p95']:.6f}, P99={p['p99']:.6f}")
         
         # GPU info
         peak_gpu = encode_call_data.get('peak_gpu')
@@ -414,6 +535,76 @@ class ModelLoadingMonitor:
             max_peak_call = next(call for call in successful_calls 
                                if call['peak_gpu']['peak_allocated_mb'] == max_peak)
             print(f"      Highest Peak: Call #{max_peak_call['call_id']} ({max_peak_call['call_type']})")
+        
+        # Tensor statistics analysis
+        print(f"\n📊 TENSOR STATISTICS ANALYSIS:")
+        successful_calls = [c for c in self.encode_calls if c['success']]
+        
+        if successful_calls:
+            # Collect all input and output statistics
+            input_stats = []
+            output_stats = []
+            
+            for call in successful_calls:
+                input_info = call.get('input_info', {})
+                output_info = call.get('output_info', {})
+                
+                if 'tensor_stats' in input_info and input_info['tensor_stats'] != 'N/A':
+                    input_stats.append(input_info['tensor_stats'])
+                
+                if 'tensor_stats' in output_info and output_info['tensor_stats'] != 'N/A':
+                    output_stats.append(output_info['tensor_stats'])
+            
+            # Input tensor statistics summary
+            if input_stats:
+                print(f"   📥 INPUT TENSOR STATISTICS ({len(input_stats)} tensors):")
+                input_means = [s['mean'] for s in input_stats if isinstance(s['mean'], (int, float))]
+                input_ranges = [s['range'] for s in input_stats if isinstance(s['range'], (int, float))]
+                input_mins = [s['min'] for s in input_stats if isinstance(s['min'], (int, float))]
+                input_maxs = [s['max'] for s in input_stats if isinstance(s['max'], (int, float))]
+                
+                if input_means:
+                    print(f"      Mean: {min(input_means):.6f} to {max(input_means):.6f} (avg: {sum(input_means)/len(input_means):.6f})")
+                    print(f"      Range: {min(input_ranges):.6f} to {max(input_ranges):.6f} (avg: {sum(input_ranges)/len(input_ranges):.6f})")
+                    print(f"      Min values: {min(input_mins):.6f} to {max(input_mins):.6f}")
+                    print(f"      Max values: {min(input_maxs):.6f} to {max(input_maxs):.6f}")
+                
+                # Check for problematic values
+                nan_count = sum(s.get('nan_count', 0) for s in input_stats)
+                inf_count = sum(s.get('inf_count', 0) for s in input_stats)
+                if nan_count > 0 or inf_count > 0:
+                    print(f"      ⚠️  PROBLEMATIC VALUES: {nan_count} NaN, {inf_count} Inf")
+            
+            # Output tensor statistics summary
+            if output_stats:
+                print(f"   📤 OUTPUT TENSOR STATISTICS ({len(output_stats)} tensors):")
+                output_means = [s['mean'] for s in output_stats if isinstance(s['mean'], (int, float))]
+                output_ranges = [s['range'] for s in output_stats if isinstance(s['range'], (int, float))]
+                output_mins = [s['min'] for s in output_stats if isinstance(s['min'], (int, float))]
+                output_maxs = [s['max'] for s in output_stats if isinstance(s['max'], (int, float))]
+                
+                if output_means:
+                    print(f"      Mean: {min(output_means):.6f} to {max(output_means):.6f} (avg: {sum(output_means)/len(output_means):.6f})")
+                    print(f"      Range: {min(output_ranges):.6f} to {max(output_ranges):.6f} (avg: {sum(output_ranges)/len(output_ranges):.6f})")
+                    print(f"      Min values: {min(output_mins):.6f} to {max(output_mins):.6f}")
+                    print(f"      Max values: {min(output_maxs):.6f} to {max(output_maxs):.6f}")
+                
+                # Check for problematic values
+                nan_count = sum(s.get('nan_count', 0) for s in output_stats)
+                inf_count = sum(s.get('inf_count', 0) for s in output_stats)
+                if nan_count > 0 or inf_count > 0:
+                    print(f"      ⚠️  PROBLEMATIC VALUES: {nan_count} NaN, {inf_count} Inf")
+            
+            # Input vs Output comparison
+            if input_stats and output_stats:
+                print(f"   🔄 INPUT vs OUTPUT COMPARISON:")
+                avg_input_mean = sum(s['mean'] for s in input_stats if isinstance(s['mean'], (int, float))) / len([s for s in input_stats if isinstance(s['mean'], (int, float))])
+                avg_output_mean = sum(s['mean'] for s in output_stats if isinstance(s['mean'], (int, float))) / len([s for s in output_stats if isinstance(s['mean'], (int, float))])
+                avg_input_range = sum(s['range'] for s in input_stats if isinstance(s['range'], (int, float))) / len([s for s in input_stats if isinstance(s['range'], (int, float))])
+                avg_output_range = sum(s['range'] for s in output_stats if isinstance(s['range'], (int, float))) / len([s for s in output_stats if isinstance(s['range'], (int, float))])
+                
+                print(f"      Mean shift: {avg_input_mean:.6f} → {avg_output_mean:.6f} (Δ: {avg_output_mean - avg_input_mean:+.6f})")
+                print(f"      Range change: {avg_input_range:.6f} → {avg_output_range:.6f} (Δ: {avg_output_range - avg_input_range:+.6f})")
         
         # Tiling analysis
         print(f"\n🧩 TILING ANALYSIS:")
@@ -3444,7 +3635,53 @@ def main():
                 wanvacetovideo = WanVaceToVideo()
                 print("      ✅ WanVaceToVideo node instance created")
                 
-                # Execute the node
+                # Create VAE wrapper for monitoring encode calls
+                print("      🔧 Creating VAE wrapper for encode monitoring...")
+                original_vae = get_value_at_index(vaeloader_7, 0)
+                
+                class VAEEncodeWrapper:
+                    def __init__(self, original_vae, monitor):
+                        self.original_vae = original_vae
+                        self.monitor = monitor
+                        self.encode_call_counter = 0
+                    
+                    def encode(self, pixel_samples):
+                        """Intercept encode calls and monitor them with tensor statistics"""
+                        self.encode_call_counter += 1
+                        call_id = self.encode_call_counter
+                        
+                        # Determine call type based on input
+                        if hasattr(pixel_samples, 'shape'):
+                            shape = pixel_samples.shape
+                            if len(shape) == 4:  # Standard image tensor
+                                if shape[0] == 1:  # Single image
+                                    call_type = "Reference Image"
+                                else:
+                                    call_type = "Video Frames"
+                            else:
+                                call_type = "Unknown Tensor"
+                        else:
+                            call_type = "Unknown Input"
+                        
+                        print(f"\n   🔍 INTERCEPTING VAE.encode() call #{call_id} ({call_type})")
+                        
+                        # Use the monitor to track this encode call with tensor statistics
+                        return self.monitor.monitor_encode_call(
+                            self.original_vae, 
+                            pixel_samples, 
+                            call_id, 
+                            call_type
+                        )
+                    
+                    def __getattr__(self, name):
+                        """Delegate all other attributes to the original VAE"""
+                        return getattr(self.original_vae, name)
+                
+                # Wrap the VAE model with monitoring
+                monitored_vae = VAEEncodeWrapper(original_vae, model_monitor)
+                print("      ✅ VAE model wrapped with comprehensive encode monitoring")
+                
+                # Execute the node with monitored VAE
                 print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED...")
                 
                 wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
@@ -3455,7 +3692,7 @@ def main():
                     strength=1,
                     positive=get_value_at_index(positive_cond_tuple, 0),
                     negative=get_value_at_index(negative_cond_tuple, 0),
-                    vae=get_value_at_index(vaeloader_7, 0),
+                    vae=monitored_vae,  # Use monitored VAE instead of original
                     control_video=get_value_at_index(vhs_loadvideo_1, 0),
                     reference_image=get_value_at_index(loadimage_4, 0),
                 )
@@ -3817,6 +4054,18 @@ def main():
         # === STEP 6 END: K-SAMPLER ===
         print("="*80)
         print("✅ Step 6 completed: K-Sampler")
+
+        # === VAE ENCODE MONITORING SUMMARY ===
+        print("\n" + "="*80)
+        print("🔍 VAE ENCODE MONITORING SUMMARY")
+        print("="*80)
+        
+        # Print comprehensive VAE encode monitoring summary
+        model_monitor.print_comprehensive_summary()
+        
+        print("="*80)
+        print("✅ Workflow execution completed successfully!")
+        print("="*80)
 
         
         return
