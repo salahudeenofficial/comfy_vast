@@ -3005,6 +3005,24 @@ def main():
                         # Use only first 37 frames as control video
                         max_frames = min(37, video_tensor.shape[0])
                         control_video_tensor = video_tensor[:max_frames]
+                        
+                        # Normalize control video to [0,1] range if needed
+                        if control_video_tensor.dtype == torch.uint8:
+                            print(f"   🔧 Normalizing control video from uint8 to [0,1] range...")
+                            control_video_tensor = control_video_tensor.float() / 255.0
+                        elif control_video_tensor.dtype in [torch.int8, torch.int16, torch.int32, torch.int64]:
+                            print(f"   🔧 Normalizing control video from {control_video_tensor.dtype} to [0,1] range...")
+                            # For integer types, assume they're in [0,255] range
+                            control_video_tensor = control_video_tensor.float() / 255.0
+                        elif control_video_tensor.dtype != torch.float32:
+                            print(f"   🔧 Converting control video to float32...")
+                            control_video_tensor = control_video_tensor.float()
+                        
+                        # Verify normalization
+                        min_val = torch.min(control_video_tensor).item()
+                        max_val = torch.max(control_video_tensor).item()
+                        print(f"   ✅ Control video normalized: range [{min_val:.6f}, {max_val:.6f}], dtype: {control_video_tensor.dtype}")
+                        
                         vhs_loadvideo_1 = [control_video_tensor, info['video_fps']]
                         print(f"✅ Video loaded with torchvision: {control_video_tensor.shape} frames (limited to first 37) at {info['video_fps']:.2f} fps")
                         print(f"   📐 Original video had {video_tensor.shape[0]} frames, using first {max_frames} frames")
@@ -3028,8 +3046,27 @@ def main():
                         img_array = np.array(img)
                         if len(img_array.shape) == 3:  # (height, width, channels)
                             # Create a single frame video
-                            video_tensor = torch.from_numpy(img_array).float() / 255.0
+                            video_tensor = torch.from_numpy(img_array)
+                            
+                            # Normalize control video to [0,1] range if needed
+                            if video_tensor.dtype == torch.uint8:
+                                print(f"   🔧 Normalizing control video from uint8 to [0,1] range...")
+                                video_tensor = video_tensor.float() / 255.0
+                            elif video_tensor.dtype in [torch.int8, torch.int16, torch.int32, torch.int64]:
+                                print(f"   🔧 Normalizing control video from {video_tensor.dtype} to [0,1] range...")
+                                # For integer types, assume they're in [0,255] range
+                                video_tensor = video_tensor.float() / 255.0
+                            elif video_tensor.dtype != torch.float32:
+                                print(f"   🔧 Converting control video to float32...")
+                                video_tensor = video_tensor.float()
+                            
                             video_tensor = video_tensor.unsqueeze(0)  # Add frame dimension
+                            
+                            # Verify normalization
+                            min_val = torch.min(video_tensor).item()
+                            max_val = torch.max(video_tensor).item()
+                            print(f"   ✅ Control video normalized: range [{min_val:.6f}, {max_val:.6f}], dtype: {video_tensor.dtype}")
+                            
                             vhs_loadvideo_1 = [video_tensor, 30.0]  # Assume 30 fps
                             print(f"✅ Video loaded with PIL fallback: {video_tensor.shape} (single frame)")
                         else:
