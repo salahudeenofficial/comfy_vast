@@ -335,6 +335,22 @@ class WanVaceToVideo(io.ComfyNode):
         inactive = vae.encode(inactive[:, :, :, :3])
         reactive = vae.encode(reactive[:, :, :, :3])
         control_video_latent = torch.cat((inactive, reactive), dim=1)
+        
+        # VAE Output Analysis - Focus on Mean and Range
+        try:
+            from workflow_api_2 import VAEEncodeMonitor
+            if hasattr(comfy.model_management, 'vae_monitor') and comfy.model_management.vae_monitor:
+                print(f"\n🔍 ANALYZING VAE OUTPUTS - MEAN AND RANGE FOCUS:")
+                analysis_result = comfy.model_management.vae_monitor.analyze_vae_outputs(
+                    reactive_latent=reactive,
+                    inactive_latent=inactive,
+                    reference_latent=reference_image,
+                    combined_vace_frames=control_video_latent,
+                    analysis_context="WanVaceToVideo VAE encoding"
+                )
+                print(f"✅ VAE output analysis completed")
+        except Exception as e:
+            print(f"⚠️  VAE output analysis failed: {e}")
         if reference_image is not None:
             control_video_latent = torch.cat((reference_image, control_video_latent), dim=2)
 

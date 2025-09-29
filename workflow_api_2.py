@@ -32,6 +32,9 @@ def attempt_vhs_import():
     pass
 
 # Add monitoring and debugging utilities
+from vae_output_analyzer import VAEOutputAnalyzer
+from typing import Optional, Dict, Any
+
 class VAEEncodeMonitor:
     """Specialized monitor for VAE .encode() calls with multi-threaded GPU monitoring"""
     
@@ -42,6 +45,7 @@ class VAEEncodeMonitor:
         self.stop_gpu_monitoring_event = threading.Event()
         self.gpu_peak_data = []
         self.current_encode_call = None
+        self.vae_output_analyzer = VAEOutputAnalyzer()
         
     def start_gpu_monitoring(self):
         """Start continuous GPU monitoring in background thread"""
@@ -214,6 +218,34 @@ class VAEEncodeMonitor:
             
             print(f"      ❌ VAE.encode() call #{encode_call_id} failed: {e}")
             raise e
+    
+    def analyze_vae_outputs(self, 
+                          reactive_latent: Optional[torch.Tensor] = None,
+                          inactive_latent: Optional[torch.Tensor] = None, 
+                          reference_latent: Optional[torch.Tensor] = None,
+                          combined_vace_frames: Optional[torch.Tensor] = None,
+                          analysis_context: str = "VAE encode monitoring") -> Dict[str, Any]:
+        """
+        Analyze VAE outputs using the integrated VAEOutputAnalyzer
+        
+        Args:
+            reactive_latent: Foreground latent tensor
+            inactive_latent: Background latent tensor
+            reference_latent: Reference image latent tensor
+            combined_vace_frames: Combined control video latent
+            analysis_context: Context description for this analysis
+            
+        Returns:
+            Dictionary containing comprehensive analysis results
+        """
+        
+        return self.vae_output_analyzer.analyze_vae_outputs(
+            reactive_latent=reactive_latent,
+            inactive_latent=inactive_latent,
+            reference_latent=reference_latent,
+            combined_vace_frames=combined_vace_frames,
+            analysis_context=analysis_context
+        )
     
     def _calculate_tensor_statistics(self, tensor, tensor_type="unknown"):
         """Calculate comprehensive statistics for a tensor"""
@@ -564,6 +596,16 @@ class VAEEncodeMonitor:
                     mean_compression = output_stats['mean'] / input_stats['mean'] if input_stats['mean'] != 0 else 0
                     range_compression = output_stats['range'] / input_stats['range'] if input_stats['range'] != 0 else 0
                     print(f"      Call #{call['call_id']}: Mean compression ratio: {mean_compression:.6f}, Range compression ratio: {range_compression:.6f}")
+
+        # VAE Output Analysis Summary
+        if hasattr(self, 'vae_output_analyzer') and self.vae_output_analyzer.analysis_results:
+            print(f"\n🔍 VAE OUTPUT ANALYSIS SUMMARY:")
+            print(f"   Total analyses performed: {len(self.vae_output_analyzer.analysis_results)}")
+            for i, analysis in enumerate(self.vae_output_analyzer.analysis_results):
+                print(f"   Analysis #{i+1}: {analysis['context']}")
+                if analysis['summary']['key_findings']:
+                    for finding in analysis['summary']['key_findings']:
+                        print(f"      • {finding}")
 
         # Detailed call breakdown
         print(f"\n📋 DETAILED CALL BREAKDOWN:")
@@ -2623,6 +2665,14 @@ class ModelLoadingMonitor:
 # Initialize the monitors
 model_monitor = ModelLoadingMonitor()
 vae_encode_monitor = VAEEncodeMonitor()
+
+# Make VAE monitor available to model_management for global access
+try:
+    import comfy.model_management
+    comfy.model_management.vae_monitor = vae_encode_monitor
+    print("✅ VAE monitor integrated with model_management")
+except Exception as e:
+    print(f"⚠️  Could not integrate VAE monitor with model_management: {e}")
 
 
 def find_safu_files():
