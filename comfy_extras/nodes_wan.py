@@ -332,8 +332,38 @@ class WanVaceToVideo(io.ComfyNode):
         inactive = (control_video * (1 - mask)) + 0.5
         reactive = (control_video * mask) + 0.5
 
-        inactive = vae.encode(inactive[:, :, :, :3])
-        reactive = vae.encode(reactive[:, :, :, :3])
+        # VAE Encoding with detailed tensor analysis
+        print(f"\n🔍 VAE ENCODING - DETAILED TENSOR ANALYSIS:")
+        
+        # Encode inactive (background) with monitoring
+        print(f"\n📊 ENCODING INACTIVE (Background) TENSOR:")
+        if hasattr(comfy.model_management, 'vae_monitor') and comfy.model_management.vae_monitor:
+            inactive = comfy.model_management.vae_monitor.monitor_encode_call(
+                vae, inactive[:, :, :, :3], "inactive_encode", "inactive_background"
+            )
+        else:
+            inactive = vae.encode(inactive[:, :, :, :3])
+        
+        # Encode reactive (foreground) with monitoring
+        print(f"\n📊 ENCODING REACTIVE (Foreground) TENSOR:")
+        if hasattr(comfy.model_management, 'vae_monitor') and comfy.model_management.vae_monitor:
+            reactive = comfy.model_management.vae_monitor.monitor_encode_call(
+                vae, reactive[:, :, :, :3], "reactive_encode", "reactive_foreground"
+            )
+        else:
+            reactive = vae.encode(reactive[:, :, :, :3])
+        
+        # Encode reference image with monitoring (if provided)
+        if reference_image is not None:
+            print(f"\n📊 ENCODING REFERENCE IMAGE TENSOR:")
+            if hasattr(comfy.model_management, 'vae_monitor') and comfy.model_management.vae_monitor:
+                reference_image = comfy.model_management.vae_monitor.monitor_encode_call(
+                    vae, reference_image[:, :, :, :3], "reference_encode", "reference_image"
+                )
+            else:
+                reference_image = vae.encode(reference_image[:, :, :, :3])
+            reference_image = torch.cat([reference_image, comfy.latent_formats.Wan21().process_out(torch.zeros_like(reference_image))], dim=1)
+        
         control_video_latent = torch.cat((inactive, reactive), dim=1)
         
         # VAE Output Analysis - Focus on Mean and Range
@@ -351,6 +381,29 @@ class WanVaceToVideo(io.ComfyNode):
                 print(f"✅ VAE output analysis completed")
         except Exception as e:
             print(f"⚠️  VAE output analysis failed: {e}")
+        
+        # Print summary of all three encoded tensors
+        print(f"\n📋 SUMMARY OF ALL THREE VAE ENCODED TENSORS:")
+        print(f"   🔹 INACTIVE (Background): shape={inactive.shape}, dtype={inactive.dtype}")
+        print(f"      Range: [{inactive.min().item():.6f}, {inactive.max().item():.6f}]")
+        print(f"      Mean: {inactive.mean().item():.6f}")
+        print(f"      First 5 elements: {[f'{x:.6f}' for x in inactive.flatten()[:5]]}")
+        
+        print(f"   🔹 REACTIVE (Foreground): shape={reactive.shape}, dtype={reactive.dtype}")
+        print(f"      Range: [{reactive.min().item():.6f}, {reactive.max().item():.6f}]")
+        print(f"      Mean: {reactive.mean().item():.6f}")
+        print(f"      First 5 elements: {[f'{x:.6f}' for x in reactive.flatten()[:5]]}")
+        
+        if reference_image is not None:
+            print(f"   🔹 REFERENCE IMAGE: shape={reference_image.shape}, dtype={reference_image.dtype}")
+            print(f"      Range: [{reference_image.min().item():.6f}, {reference_image.max().item():.6f}]")
+            print(f"      Mean: {reference_image.mean().item():.6f}")
+            print(f"      First 5 elements: {[f'{x:.6f}' for x in reference_image.flatten()[:5]]}")
+        
+        print(f"   🔹 COMBINED VACE_FRAMES: shape={control_video_latent.shape}, dtype={control_video_latent.dtype}")
+        print(f"      Range: [{control_video_latent.min().item():.6f}, {control_video_latent.max().item():.6f}]")
+        print(f"      Mean: {control_video_latent.mean().item():.6f}")
+        print(f"      First 5 elements: {[f'{x:.6f}' for x in control_video_latent.flatten()[:5]]}")
         if reference_image is not None:
             control_video_latent = torch.cat((reference_image, control_video_latent), dim=2)
 

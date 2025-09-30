@@ -150,6 +150,17 @@ class VAEEncodeMonitor:
             print(f"         Input size: {input_info['size_mb']:.2f} MB")
             print(f"         Tiled encoding: {'YES' if input_info['requires_tiling'] else 'NO'}")
             
+            # Print detailed tensor analysis
+            if input_info['tensor_stats']:
+                stats = input_info['tensor_stats']
+                print(f"         📊 TENSOR ANALYSIS:")
+                print(f"            Range: [{stats['min']:.6f}, {stats['max']:.6f}] (span: {stats['range']:.6f})")
+                print(f"            Mean: {stats['mean']:.6f}")
+                print(f"            Dtype: {input_info['dtype']}")
+                print(f"            First 5 elements: {[f'{x:.6f}' for x in stats['first_5_elements']]}")
+                print(f"            Std: {stats['std']:.6f}")
+                print(f"            Quality: NaN={stats['has_nan']}, Inf={stats['has_inf']}")
+            
             # Execute the actual encode
             output_tensor = vae_model.encode(input_tensor)
             
@@ -165,6 +176,17 @@ class VAEEncodeMonitor:
             
             # Analyze output
             output_info = self._analyze_encode_output(output_tensor)
+            
+            # Print detailed output tensor analysis
+            if output_info['tensor_stats']:
+                stats = output_info['tensor_stats']
+                print(f"         📤 OUTPUT TENSOR ANALYSIS:")
+                print(f"            Range: [{stats['min']:.6f}, {stats['max']:.6f}] (span: {stats['range']:.6f})")
+                print(f"            Mean: {stats['mean']:.6f}")
+                print(f"            Dtype: {output_info['dtype']}")
+                print(f"            First 5 elements: {[f'{x:.6f}' for x in stats['first_5_elements']]}")
+                print(f"            Std: {stats['std']:.6f}")
+                print(f"            Quality: NaN={stats['has_nan']}, Inf={stats['has_inf']}")
             
             # Capture final GPU state
             final_gpu = {
@@ -268,8 +290,11 @@ class VAEEncodeMonitor:
             # Calculate standard deviation
             std_val = torch.std(tensor_float).item()
             
-            # Calculate percentiles
+            # Get first 5 elements for analysis
             tensor_flat = tensor_float.flatten()
+            first_5_elements = tensor_flat[:5].tolist()
+            
+            # Calculate percentiles
             sorted_tensor, _ = torch.sort(tensor_flat)
             n = len(sorted_tensor)
             
@@ -295,6 +320,7 @@ class VAEEncodeMonitor:
                 'max': max_val,
                 'range': range_val,
                 'std': std_val,
+                'first_5_elements': first_5_elements,
                 'median': p50,
                 'p25': p25,
                 'p75': p75,
