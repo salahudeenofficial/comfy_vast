@@ -714,6 +714,91 @@ class ModelLoadingMonitor:
         
         return None, f"No tensor found at depth {current_depth}"
     
+    def print_tensor_info(self, tensor, tensor_name="Unknown"):
+        """Print comprehensive tensor information: mean, range, first 5 values, dtype"""
+        if tensor is None:
+            print(f"   ❌ {tensor_name}: None")
+            return
+        
+        try:
+            # Check if it's a tensor
+            if hasattr(tensor, 'shape') and hasattr(tensor, 'dtype'):
+                print(f"   📊 {tensor_name}:")
+                print(f"      🔢 Dtype: {tensor.dtype}")
+                print(f"      📐 Shape: {tensor.shape}")
+                print(f"      🖥️  Device: {tensor.device}")
+                
+                # Calculate tensor statistics
+                if hasattr(tensor, 'float'):
+                    tensor_float = tensor.float()
+                    mean_val = torch.mean(tensor_float).item()
+                    min_val = torch.min(tensor_float).item()
+                    max_val = torch.max(tensor_float).item()
+                    range_val = max_val - min_val
+                    first_5 = tensor_float.flatten()[:5].tolist()
+                    
+                    print(f"      📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                    print(f"      📊 Mean: {mean_val:.6f}")
+                    print(f"      🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+                else:
+                    print(f"      ⚠️  Cannot convert to float for statistics")
+            
+            # Check if it's a list/tuple containing tensors
+            elif isinstance(tensor, (list, tuple)) and len(tensor) > 0:
+                print(f"   📊 {tensor_name} (list/tuple with {len(tensor)} items):")
+                for i, item in enumerate(tensor):
+                    if hasattr(item, 'shape') and hasattr(item, 'dtype'):
+                        print(f"      Item {i}:")
+                        print(f"         🔢 Dtype: {item.dtype}")
+                        print(f"         📐 Shape: {item.shape}")
+                        print(f"         🖥️  Device: {item.device}")
+                        
+                        # Calculate tensor statistics
+                        if hasattr(item, 'float'):
+                            tensor_float = item.float()
+                            mean_val = torch.mean(tensor_float).item()
+                            min_val = torch.min(tensor_float).item()
+                            max_val = torch.max(tensor_float).item()
+                            range_val = max_val - min_val
+                            first_5 = tensor_float.flatten()[:5].tolist()
+                            
+                            print(f"         📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                            print(f"         📊 Mean: {mean_val:.6f}")
+                            print(f"         🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+                    else:
+                        print(f"      Item {i}: {type(item).__name__} (not a tensor)")
+            
+            # Check if it's a dictionary containing tensors
+            elif isinstance(tensor, dict):
+                print(f"   📊 {tensor_name} (dictionary with {len(tensor)} keys):")
+                for key, value in tensor.items():
+                    if hasattr(value, 'shape') and hasattr(value, 'dtype'):
+                        print(f"      Key '{key}':")
+                        print(f"         🔢 Dtype: {value.dtype}")
+                        print(f"         📐 Shape: {value.shape}")
+                        print(f"         🖥️  Device: {value.device}")
+                        
+                        # Calculate tensor statistics
+                        if hasattr(value, 'float'):
+                            tensor_float = value.float()
+                            mean_val = torch.mean(tensor_float).item()
+                            min_val = torch.min(tensor_float).item()
+                            max_val = torch.max(tensor_float).item()
+                            range_val = max_val - min_val
+                            first_5 = tensor_float.flatten()[:5].tolist()
+                            
+                            print(f"         📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                            print(f"         📊 Mean: {mean_val:.6f}")
+                            print(f"         🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+                    else:
+                        print(f"      Key '{key}': {type(value).__name__} (not a tensor)")
+            
+            else:
+                print(f"   ⚠️  {tensor_name}: {type(tensor).__name__} (not a tensor or tensor container)")
+                
+        except Exception as e:
+            print(f"   ❌ {tensor_name}: Error analyzing tensor - {e}")
+    
     def start_monitoring(self, step_name):
         """Start monitoring a specific step"""
         self.step_start_time = time.time()
@@ -3691,20 +3776,119 @@ def main():
                 control_video=get_value_at_index(vhs_loadvideo_1, 0),
                 reference_image=get_value_at_index(loadimage_4, 0),
             )
-            ksampler_14  = KSampler()
-
+            
+            # === STEP 6: KSAMPLER EXECUTION ===
+            print("\n" + "="*80)
+            print("🔍 STEP 6: KSAMPLER EXECUTION")
+            print("="*80)
+            
+            # Extract all KSampler inputs from WanVaceToVideo outputs for monitoring
+            print("\n📊 EXTRACTING KSAMPLER INPUTS FROM WANVACETOVIDEO OUTPUTS:")
+            print("-" * 60)
+            
+            # Extract positive conditioning
+            ksampler_positive = get_value_at_index(wanvacetovideo_13, 0)
+            print("🎯 Positive conditioning extracted from WanVaceToVideo output[0]")
+            
+            # Extract negative conditioning  
+            ksampler_negative = get_value_at_index(wanvacetovideo_13, 1)
+            print("🎯 Negative conditioning extracted from WanVaceToVideo output[1]")
+            
+            # Extract latent image
+            ksampler_latent = get_value_at_index(wanvacetovideo_13, 2)
+            print("🎯 Latent image extracted from WanVaceToVideo output[2]")
+            
+            # Use the already processed model from Step 4 (ModelSamplingSD3 already applied)
+            ksampler_model = modified_unet_sampled
+            print("🎯 Using model from Step 4 (ModelSamplingSD3 already applied)")
+            
+            # Comprehensive tensor monitoring for all KSampler inputs
+            print("\n📊 COMPREHENSIVE TENSOR MONITORING FOR ALL KSAMPLER INPUTS:")
+            print("=" * 80)
+            
+            # Monitor positive conditioning (list of [tensor, metadata] pairs)
+            print("\n🔍 POSITIVE CONDITIONING TENSOR ANALYSIS:")
+            if isinstance(ksampler_positive, list) and len(ksampler_positive) > 0:
+                print(f"   📊 Positive conditioning: List with {len(ksampler_positive)} items")
+                for i, cond_item in enumerate(ksampler_positive):
+                    if isinstance(cond_item, (list, tuple)) and len(cond_item) >= 2:
+                        tensor_part = cond_item[0]
+                        metadata_part = cond_item[1]
+                        print(f"   📊 Conditioning item {i}:")
+                        model_monitor.print_tensor_info(tensor_part, f"Positive Conditioning[{i}] Tensor")
+                        if isinstance(metadata_part, dict):
+                            print(f"      📋 Metadata keys: {list(metadata_part.keys())}")
+                            # Check for VACE-specific metadata
+                            if 'vace_frames' in metadata_part:
+                                vace_frames = metadata_part['vace_frames']
+                                if isinstance(vace_frames, list) and len(vace_frames) > 0:
+                                    model_monitor.print_tensor_info(vace_frames[0], f"Positive VACE Frames[{i}]")
+                            if 'vace_mask' in metadata_part:
+                                vace_mask = metadata_part['vace_mask']
+                                if isinstance(vace_mask, list) and len(vace_mask) > 0:
+                                    model_monitor.print_tensor_info(vace_mask[0], f"Positive VACE Mask[{i}]")
+                    else:
+                        model_monitor.print_tensor_info(cond_item, f"Positive Conditioning[{i}]")
+            else:
+                model_monitor.print_tensor_info(ksampler_positive, "Positive Conditioning")
+            
+            # Monitor negative conditioning (list of [tensor, metadata] pairs)
+            print("\n🔍 NEGATIVE CONDITIONING TENSOR ANALYSIS:")
+            if isinstance(ksampler_negative, list) and len(ksampler_negative) > 0:
+                print(f"   📊 Negative conditioning: List with {len(ksampler_negative)} items")
+                for i, cond_item in enumerate(ksampler_negative):
+                    if isinstance(cond_item, (list, tuple)) and len(cond_item) >= 2:
+                        tensor_part = cond_item[0]
+                        metadata_part = cond_item[1]
+                        print(f"   📊 Conditioning item {i}:")
+                        model_monitor.print_tensor_info(tensor_part, f"Negative Conditioning[{i}] Tensor")
+                        if isinstance(metadata_part, dict):
+                            print(f"      📋 Metadata keys: {list(metadata_part.keys())}")
+                            # Check for VACE-specific metadata
+                            if 'vace_frames' in metadata_part:
+                                vace_frames = metadata_part['vace_frames']
+                                if isinstance(vace_frames, list) and len(vace_frames) > 0:
+                                    model_monitor.print_tensor_info(vace_frames[0], f"Negative VACE Frames[{i}]")
+                            if 'vace_mask' in metadata_part:
+                                vace_mask = metadata_part['vace_mask']
+                                if isinstance(vace_mask, list) and len(vace_mask) > 0:
+                                    model_monitor.print_tensor_info(vace_mask[0], f"Negative VACE Mask[{i}]")
+                    else:
+                        model_monitor.print_tensor_info(cond_item, f"Negative Conditioning[{i}]")
+            else:
+                model_monitor.print_tensor_info(ksampler_negative, "Negative Conditioning")
+            
+            # Monitor latent image
+            print("\n🔍 LATENT IMAGE TENSOR ANALYSIS:")
+            model_monitor.print_tensor_info(ksampler_latent, "Latent Image")
+            
+            # Monitor model (UNET)
+            print("\n🔍 MODEL (UNET) TENSOR ANALYSIS:")
+            model_monitor.print_tensor_info(ksampler_model, "UNET Model")
+            
+            # Original KSampler execution (unchanged)
+            ksampler = KSampler()
+            # import random
+            
             ksampler_14 = ksampler.sample(
-            seed=random.randint(1, 2**64),
-            steps=4,
-            cfg=1,
-            sampler_name="ddim",
-            scheduler="normal",
-            denoise=1,
-            model=get_value_at_index(modified_unet_sampled, 0),
-            positive=get_value_at_index(wanvacetovideo_13, 0),
-            negative=get_value_at_index(wanvacetovideo_13, 1),
-            latent_image=get_value_at_index(wanvacetovideo_13, 2),
-        )
+                seed=42,
+                steps=4,
+                cfg=1,
+                sampler_name="ddim",
+                scheduler="normal",
+                denoise=1,
+                model=ksampler_model,
+                positive=ksampler_positive,
+                negative=ksampler_negative,
+                latent_image=ksampler_latent,
+            )
+            
+            # Monitor KSampler output
+            print("\n🔍 KSAMPLER OUTPUT TENSOR ANALYSIS:")
+            model_monitor.print_tensor_info(ksampler_14, "KSampler Output")
+            
+            print("="*80)
+            print("✅ Step 6 completed: KSampler Execution with Comprehensive Tensor Monitoring")
         except Exception as e:
             print(f"❌ ERROR during KSampler execution: {e}")
             print("🔍 KSampler failed - check error details above")
