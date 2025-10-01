@@ -304,7 +304,7 @@ class WanVaceToVideo(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, positive, negative, vae, width, height, length, batch_size, strength, control_video=None, control_masks=None, reference_image=None) -> io.NodeOutput:
+    def execute(cls, positive, negative, H, width, height, length, batch_size, strength, control_video=None, control_masks=None, reference_image=None) -> io.NodeOutput:
         latent_length = ((length - 1) // 4) + 1
         if control_video is not None:
             control_video = comfy.utils.common_upscale(control_video[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
@@ -333,38 +333,17 @@ class WanVaceToVideo(io.ComfyNode):
         reactive = (control_video * mask) + 0.5
 
         # VAE Encoding with detailed tensor analysis
-        print(f"\n🔍 VAE ENCODING - DETAILED TENSOR ANALYSIS:")
+   
+        inactive = vae.encode(inactive[:, :, :, :3])
         
-        # Encode inactive (background) with monitoring
-        print(f"\n📊 ENCODING INACTIVE (Background) TENSOR:")
-        if hasattr(comfy.model_management, 'vae_monitor') and comfy.model_management.vae_monitor:
-            inactive = comfy.model_management.vae_monitor.monitor_encode_call(
-                vae, inactive[:, :, :, :3], "inactive_encode", "inactive_background"
-            )
-        else:
-            inactive = vae.encode(inactive[:, :, :, :3])
-        
-        # Encode reactive (foreground) with monitoring
-        print(f"\n📊 ENCODING REACTIVE (Foreground) TENSOR:")
-        if hasattr(comfy.model_management, 'vae_monitor') and comfy.model_management.vae_monitor:
-            reactive = comfy.model_management.vae_monitor.monitor_encode_call(
-                vae, reactive[:, :, :, :3], "reactive_encode", "reactive_foreground"
-            )
-        else:
-            reactive = vae.encode(reactive[:, :, :, :3])
-        
+    
+        reactive = vae.encode(reactive[:, :, :, :3])
+        control_video_latent = torch.cat((inactive, reactive), dim=1)
+
         # Encode reference image with monitoring (if provided)
         if reference_image is not None:
-            print(f"\n📊 ENCODING REFERENCE IMAGE TENSOR:")
-            if hasattr(comfy.model_management, 'vae_monitor') and comfy.model_management.vae_monitor:
-                reference_image = comfy.model_management.vae_monitor.monitor_encode_call(
-                    vae, reference_image[:, :, :, :3], "reference_encode", "reference_image"
-                )
-            else:
-                reference_image = vae.encode(reference_image[:, :, :, :3])
-            reference_image = torch.cat([reference_image, comfy.latent_formats.Wan21().process_out(torch.zeros_like(reference_image))], dim=1)
-        
-        control_video_latent = torch.cat((inactive, reactive), dim=1)
+            control_video_latent = torch.cat((reference_image, control_video_latent), dim=2)
+
         
         # VAE Output Analysis - Focus on Mean and Range
         try:

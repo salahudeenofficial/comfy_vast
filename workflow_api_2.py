@@ -150,16 +150,6 @@ class VAEEncodeMonitor:
             print(f"         Input size: {input_info['size_mb']:.2f} MB")
             print(f"         Tiled encoding: {'YES' if input_info['requires_tiling'] else 'NO'}")
             
-            # Print detailed tensor analysis
-            if input_info['tensor_stats']:
-                stats = input_info['tensor_stats']
-                print(f"         📊 TENSOR ANALYSIS:")
-                print(f"            Range: [{stats['min']:.6f}, {stats['max']:.6f}] (span: {stats['range']:.6f})")
-                print(f"            Mean: {stats['mean']:.6f}")
-                print(f"            Dtype: {input_info['dtype']}")
-                print(f"            First 5 elements: {[f'{x:.6f}' for x in stats['first_5_elements']]}")
-                print(f"            Std: {stats['std']:.6f}")
-                print(f"            Quality: NaN={stats['has_nan']}, Inf={stats['has_inf']}")
             
             # Execute the actual encode
             output_tensor = vae_model.encode(input_tensor)
@@ -365,9 +355,6 @@ class VAEEncodeMonitor:
         requires_tiling = self._analyze_tiling_requirement(shape, call_type)
         tile_analysis = self._get_tile_analysis(shape, requires_tiling)
         
-        # Calculate tensor statistics
-        tensor_stats = self._calculate_tensor_statistics(input_tensor, "input")
-        
         return {
             'shape': shape,
             'dtype': dtype,
@@ -375,8 +362,7 @@ class VAEEncodeMonitor:
             'size_mb': size_mb,
             'num_elements': num_elements,
             'requires_tiling': requires_tiling,
-            'tile_analysis': tile_analysis,
-            'tensor_stats': tensor_stats
+            'tile_analysis': tile_analysis
         }
     
     def _analyze_tiling_requirement(self, shape, call_type):
@@ -480,19 +466,6 @@ class VAEEncodeMonitor:
         print(f"         Device: {input_info['device']}")
         print(f"         Tiled: {'YES' if input_info['requires_tiling'] else 'NO'}")
         
-        # Input tensor statistics
-        input_stats = input_info.get('tensor_stats')
-        if input_stats:
-            print(f"         📊 Input Tensor Stats:")
-            print(f"            Mean: {input_stats['mean']:.6f}")
-            print(f"            Range: [{input_stats['min']:.6f}, {input_stats['max']:.6f}] (span: {input_stats['range']:.6f})")
-            print(f"            Std: {input_stats['std']:.6f}")
-            print(f"            Median: {input_stats['median']:.6f}")
-            print(f"            Percentiles: P25={input_stats['p25']:.6f}, P75={input_stats['p75']:.6f}, P95={input_stats['p95']:.6f}, P99={input_stats['p99']:.6f}")
-            if input_stats['has_nan'] or input_stats['has_inf']:
-                print(f"            ⚠️  Contains NaN: {input_stats['has_nan']}, Inf: {input_stats['has_inf']}")
-            print(f"            Value Distribution: {input_stats['positive_ratio']:.1%} positive, {input_stats['negative_ratio']:.1%} negative, {input_stats['zero_ratio']:.1%} zero")
-        
         # Output info
         output_info = encode_call_data['output_info']
         if output_info:
@@ -589,39 +562,17 @@ class VAEEncodeMonitor:
         
         # Tensor statistics summary
         print(f"\n📊 TENSOR STATISTICS SUMMARY:")
-        successful_calls_with_stats = [c for c in self.encode_calls if c['success'] and c['input_info'].get('tensor_stats')]
+        successful_calls_with_stats = [c for c in self.encode_calls if c['success'] and c['output_info'].get('tensor_stats')]
         
         if successful_calls_with_stats:
-            # Input tensor statistics
-            input_means = [c['input_info']['tensor_stats']['mean'] for c in successful_calls_with_stats]
-            input_ranges = [c['input_info']['tensor_stats']['range'] for c in successful_calls_with_stats]
-            input_stds = [c['input_info']['tensor_stats']['std'] for c in successful_calls_with_stats]
+            output_means = [c['output_info']['tensor_stats']['mean'] for c in successful_calls_with_stats]
+            output_ranges = [c['output_info']['tensor_stats']['range'] for c in successful_calls_with_stats]
+            output_stds = [c['output_info']['tensor_stats']['std'] for c in successful_calls_with_stats]
             
-            print(f"   📥 INPUT TENSOR STATS:")
-            print(f"      Mean: {min(input_means):.6f} to {max(input_means):.6f} (avg: {sum(input_means)/len(input_means):.6f})")
-            print(f"      Range: {min(input_ranges):.6f} to {max(input_ranges):.6f} (avg: {sum(input_ranges)/len(input_ranges):.6f})")
-            print(f"      Std: {min(input_stds):.6f} to {max(input_stds):.6f} (avg: {sum(input_stds)/len(input_stds):.6f})")
-            
-            # Output tensor statistics
-            output_calls_with_stats = [c for c in successful_calls_with_stats if c['output_info'].get('tensor_stats')]
-            if output_calls_with_stats:
-                output_means = [c['output_info']['tensor_stats']['mean'] for c in output_calls_with_stats]
-                output_ranges = [c['output_info']['tensor_stats']['range'] for c in output_calls_with_stats]
-                output_stds = [c['output_info']['tensor_stats']['std'] for c in output_calls_with_stats]
-                
-                print(f"   📤 OUTPUT TENSOR STATS:")
-                print(f"      Mean: {min(output_means):.6f} to {max(output_means):.6f} (avg: {sum(output_means)/len(output_means):.6f})")
-                print(f"      Range: {min(output_ranges):.6f} to {max(output_ranges):.6f} (avg: {sum(output_ranges)/len(output_ranges):.6f})")
-                print(f"      Std: {min(output_stds):.6f} to {max(output_stds):.6f} (avg: {sum(output_stds)/len(output_stds):.6f})")
-                
-                # Compression analysis
-                print(f"   🔄 ENCODING COMPRESSION ANALYSIS:")
-                for i, call in enumerate(output_calls_with_stats):
-                    input_stats = call['input_info']['tensor_stats']
-                    output_stats = call['output_info']['tensor_stats']
-                    mean_compression = output_stats['mean'] / input_stats['mean'] if input_stats['mean'] != 0 else 0
-                    range_compression = output_stats['range'] / input_stats['range'] if input_stats['range'] != 0 else 0
-                    print(f"      Call #{call['call_id']}: Mean compression ratio: {mean_compression:.6f}, Range compression ratio: {range_compression:.6f}")
+            print(f"   📤 OUTPUT TENSOR STATS:")
+            print(f"      Mean: {min(output_means):.6f} to {max(output_means):.6f} (avg: {sum(output_means)/len(output_means):.6f})")
+            print(f"      Range: {min(output_ranges):.6f} to {max(output_ranges):.6f} (avg: {sum(output_ranges)/len(output_ranges):.6f})")
+            print(f"      Std: {min(output_stds):.6f} to {max(output_stds):.6f} (avg: {sum(output_stds)/len(output_stds):.6f})")
 
         # VAE Output Analysis Summary
         if hasattr(self, 'vae_output_analyzer') and self.vae_output_analyzer.analysis_results:
@@ -643,11 +594,6 @@ class VAEEncodeMonitor:
             print(f"      Datatype: {call['input_info']['dtype']}")
             print(f"      Device: {call['input_info']['device']}")
             print(f"      Tiled: {'YES' if call['input_info']['requires_tiling'] else 'NO'}")
-            
-            # Input tensor statistics
-            input_stats = call['input_info'].get('tensor_stats')
-            if input_stats:
-                print(f"      📊 Input Stats: Mean={input_stats['mean']:.6f}, Range=[{input_stats['min']:.6f}, {input_stats['max']:.6f}], Std={input_stats['std']:.6f}")
             
             if call['success'] and call['output_info']:
                 print(f"         Output: {call['output_info']['shape']} ({call['output_info']['size_mb']:.2f} MB)")
