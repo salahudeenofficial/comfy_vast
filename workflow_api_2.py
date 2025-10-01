@@ -3705,6 +3705,10 @@ def main():
             negative=get_value_at_index(wanvacetovideo_13, 1),
             latent_image=get_value_at_index(wanvacetovideo_13, 2),
         )
+        except Exception as e:
+            print(f"❌ ERROR during KSampler execution: {e}")
+            print("🔍 KSampler failed - check error details above")
+            return
 
         
         return
