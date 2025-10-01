@@ -3762,14 +3762,15 @@ def main():
             try:
                 from comfy_extras.nodes_model_advanced import ModelSamplingSD3
                 modelsamplingsd3 = ModelSamplingSD3()
+                # Use the LoRA output directly (matching workflow_api.py)
                 modelsamplingsd3_15 = modelsamplingsd3.patch(
                     shift=8.000000000000002, 
-                    model=get_value_at_index(modified_unet_sampled, 0)
+                    model=get_value_at_index(loraloader_24, 0)
                 )
                 print("   ✅ ModelSamplingSD3 applied successfully")
             except ImportError:
                 print("   ⚠️  ModelSamplingSD3 not available, using fallback approach")
-                modelsamplingsd3_15 = modified_unet_sampled
+                modelsamplingsd3_15 = get_value_at_index(loraloader_24, 0)
                 print("   ℹ️  Using fallback model (no sampling modifications applied)")
             
             # Create KSampler instance
