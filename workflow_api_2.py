@@ -3669,78 +3669,78 @@ def main():
         print("5. Executing WanVaceToVideo node with VAE .encode() monitoring...")
         
         # Execute WanVaceToVideo node with VAE encode monitoring
-        try:
-            print("\n🔧 EXECUTING WANVACETOVIDEO NODE WITH VAE ENCODE MONITORING...")
+    
+        print("\n🔧 EXECUTING WANVACETOVIDEO NODE WITH VAE ENCODE MONITORING...")
+        
+        # Check if we have all required inputs
+        required_inputs = {
+            'positive_conditioning': 'positive_cond_tuple' in locals(),
+            'negative_conditioning': 'negative_cond_tuple' in locals(), 
+            'vae': 'vaeloader_7' in locals(),
+            'control_video': 'vhs_loadvideo_1' in locals(),
+            'reference_image': 'loadimage_4' in locals()
+        }
+        
+        print(f"   📋 Required inputs status:")
+        for input_name, available in required_inputs.items():
+            status = "✅ AVAILABLE" if available else "❌ MISSING"
+            print(f"      {input_name}: {status}")
+        
+        # Check if all inputs are available
+        if not all(required_inputs.values()):
+            missing_inputs = [name for name, available in required_inputs.items() if not available]
+            print(f"\n❌ CANNOT PROCEED: Missing inputs: {', '.join(missing_inputs)}")
+            print("🔍 Please ensure all previous steps completed successfully")
+            return
+        
+        print(f"\n   ✅ All required inputs available - proceeding with VAE encode monitoring")
+        
+        # === VAE ENCODE MONITORING SETUP ===
+        print(f"\n🔍 SETTING UP VAE ENCODE MONITORING...")
+        
+        # Get VAE model for monitoring
+        vae_model = get_value_at_index(vaeloader_7, 0)
+        print(f"   🎨 VAE Model: {type(vae_model).__name__}")
+        
+        # Create a wrapper to intercept VAE encode calls
+        class VAEEncodeWrapper:
+            def __init__(self, original_vae, monitor):
+                self.original_vae = original_vae
+                self.monitor = monitor
+                self.encode_call_counter = 0
             
-            # Check if we have all required inputs
-            required_inputs = {
-                'positive_conditioning': 'positive_cond_tuple' in locals(),
-                'negative_conditioning': 'negative_cond_tuple' in locals(), 
-                'vae': 'vaeloader_7' in locals(),
-                'control_video': 'vhs_loadvideo_1' in locals(),
-                'reference_image': 'loadimage_4' in locals()
-            }
-            
-            print(f"   📋 Required inputs status:")
-            for input_name, available in required_inputs.items():
-                status = "✅ AVAILABLE" if available else "❌ MISSING"
-                print(f"      {input_name}: {status}")
-            
-            # Check if all inputs are available
-            if not all(required_inputs.values()):
-                missing_inputs = [name for name, available in required_inputs.items() if not available]
-                print(f"\n❌ CANNOT PROCEED: Missing inputs: {', '.join(missing_inputs)}")
-                print("🔍 Please ensure all previous steps completed successfully")
-                return
-            
-            print(f"\n   ✅ All required inputs available - proceeding with VAE encode monitoring")
-            
-            # === VAE ENCODE MONITORING SETUP ===
-            print(f"\n🔍 SETTING UP VAE ENCODE MONITORING...")
-            
-            # Get VAE model for monitoring
-            vae_model = get_value_at_index(vaeloader_7, 0)
-            print(f"   🎨 VAE Model: {type(vae_model).__name__}")
-            
-            # Create a wrapper to intercept VAE encode calls
-            class VAEEncodeWrapper:
-                def __init__(self, original_vae, monitor):
-                    self.original_vae = original_vae
-                    self.monitor = monitor
-                    self.encode_call_counter = 0
+            def encode(self, pixel_samples):
+                """Intercept encode calls and monitor them"""
+                self.encode_call_counter += 1
+                call_id = self.encode_call_counter
                 
-                def encode(self, pixel_samples):
-                    """Intercept encode calls and monitor them"""
-                    self.encode_call_counter += 1
-                    call_id = self.encode_call_counter
-                    
-                    # Determine call type based on input
-                    if hasattr(pixel_samples, 'shape'):
-                        shape = pixel_samples.shape
-                        if len(shape) == 4:  # Standard image tensor
-                            if shape[0] == 1:  # Single image
-                                call_type = "Reference Image"
-                            else:
-                                call_type = "Video Frames"
+                # Determine call type based on input
+                if hasattr(pixel_samples, 'shape'):
+                    shape = pixel_samples.shape
+                    if len(shape) == 4:  # Standard image tensor
+                        if shape[0] == 1:  # Single image
+                            call_type = "Reference Image"
                         else:
-                            call_type = "Unknown Tensor"
+                            call_type = "Video Frames"
                     else:
-                        call_type = "Unknown Input"
-                    
-                    print(f"\n   🔍 INTERCEPTING VAE.encode() call #{call_id} ({call_type})")
-                    
-                    # Use the monitor to track this encode call
-                    return self.monitor.monitor_encode_call(
-                        self.original_vae, 
-                        pixel_samples, 
-                        call_id, 
-                        call_type
-                    )
+                        call_type = "Unknown Tensor"
+                else:
+                    call_type = "Unknown Input"
                 
-                def __getattr__(self, name):
-                    """Delegate all other attributes to the original VAE"""
-                    return getattr(self.original_vae, name)
+                print(f"\n   🔍 INTERCEPTING VAE.encode() call #{call_id} ({call_type})")
+                
+                # Use the monitor to track this encode call
+                return self.monitor.monitor_encode_call(
+                    self.original_vae, 
+                    pixel_samples, 
+                    call_id, 
+                    call_type
+                )
             
+            def __getattr__(self, name):
+                """Delegate all other attributes to the original VAE"""
+                return getattr(self.original_vae, name)
+        
             # Wrap the VAE model with monitoring
             monitored_vae = VAEEncodeWrapper(vae_model, vae_encode_monitor)
             print(f"   ✅ VAE model wrapped with encode monitoring")
@@ -3750,33 +3750,33 @@ def main():
             
         
                 # Import WanVaceToVideo node
-                from comfy_extras.nodes_wan import WanVaceToVideo
-                print("      ✅ WanVaceToVideo node imported successfully")
-                
-                # Create node instance
-                wanvacetovideo = WanVaceToVideo()
-                print("      ✅ WanVaceToVideo node instance created")
-                
-                # Temporarily replace the VAE in the node to use our monitored version
-                # We need to patch the node's VAE reference
-                original_vae_ref = get_value_at_index(vaeloader_7, 0)
-                
-                # Execute the node with our monitored VAE
-                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED with monitored VAE...")
-                
-                wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
-                    width=480,
-                    height=832,
-                    length=37,
-                    batch_size=1,
-                    strength=1,
-                    positive=get_value_at_index(positive_cond_tuple, 0),
-                    negative=get_value_at_index(negative_cond_tuple, 0),
-                    vae=monitored_vae,  # Use our monitored VAE
-                    control_video=get_value_at_index(vhs_loadvideo_1, 0),
-                    reference_image=get_value_at_index(loadimage_4, 0),
-                )
-                
+            from comfy_extras.nodes_wan import WanVaceToVideo
+            print("      ✅ WanVaceToVideo node imported successfully")
+            
+            # Create node instance
+            wanvacetovideo = WanVaceToVideo()
+            print("      ✅ WanVaceToVideo node instance created")
+            
+            # Temporarily replace the VAE in the node to use our monitored version
+            # We need to patch the node's VAE reference
+            original_vae_ref = get_value_at_index(vaeloader_7, 0)
+            
+            # Execute the node with our monitored VAE
+            print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED with monitored VAE...")
+            
+            wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
+                width=480,
+                height=832,
+                length=37,
+                batch_size=1,
+                strength=1,
+                positive=get_value_at_index(positive_cond_tuple, 0),
+                negative=get_value_at_index(negative_cond_tuple, 0),
+                vae=monitored_vae,  # Use our monitored VAE
+                control_video=get_value_at_index(vhs_loadvideo_1, 0),
+                reference_image=get_value_at_index(loadimage_4, 0),
+            )
+            
             # === STEP 6: KSAMPLER EXECUTION ===
             print("\n" + "="*80)
             print("🔍 STEP 6: KSAMPLER EXECUTION")
@@ -3950,11 +3950,7 @@ def main():
                 model_monitor.print_tensor_info(ksampler_14, "KSampler Output")
         
         print("="*80)
-            print("✅ Step 6 completed: KSampler Execution with Comprehensive Tensor Monitoring")
-        except Exception as e:
-            print(f"❌ ERROR during KSampler execution: {e}")
-            print("🔍 KSampler failed - check error details above")
-            return
+  
 
         
         return
