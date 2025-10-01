@@ -3832,6 +3832,28 @@ def main():
             else:
                 model_monitor.print_tensor_info(ksampler_positive, "Positive Conditioning")
             
+            # Additional debugging for tensor size mismatch
+            print("\n🔍 CONDITIONING TENSOR SIZE ANALYSIS:")
+            if isinstance(ksampler_positive, list) and len(ksampler_positive) > 0:
+                for i, cond_item in enumerate(ksampler_positive):
+                    if isinstance(cond_item, (list, tuple)) and len(cond_item) >= 2:
+                        tensor_part = cond_item[0]
+                        if hasattr(tensor_part, 'shape'):
+                            print(f"   📐 Positive[{i}] tensor shape: {tensor_part.shape}")
+                            print(f"   📐 Positive[{i}] tensor dims: {len(tensor_part.shape)}")
+                            if len(tensor_part.shape) >= 2:
+                                print(f"   📐 Positive[{i}] tensor size in dim 1: {tensor_part.shape[1]}")
+            
+            if isinstance(ksampler_negative, list) and len(ksampler_negative) > 0:
+                for i, cond_item in enumerate(ksampler_negative):
+                    if isinstance(cond_item, (list, tuple)) and len(cond_item) >= 2:
+                        tensor_part = cond_item[0]
+                        if hasattr(tensor_part, 'shape'):
+                            print(f"   📐 Negative[{i}] tensor shape: {tensor_part.shape}")
+                            print(f"   📐 Negative[{i}] tensor dims: {len(tensor_part.shape)}")
+                            if len(tensor_part.shape) >= 2:
+                                print(f"   📐 Negative[{i}] tensor size in dim 1: {tensor_part.shape[1]}")
+            
             # Monitor negative conditioning (list of [tensor, metadata] pairs)
             print("\n🔍 NEGATIVE CONDITIONING TENSOR ANALYSIS:")
             if isinstance(ksampler_negative, list) and len(ksampler_negative) > 0:
@@ -3862,9 +3884,14 @@ def main():
             print("\n🔍 LATENT IMAGE TENSOR ANALYSIS:")
             model_monitor.print_tensor_info(ksampler_latent, "Latent Image")
             
-            # Monitor model (UNET)
-            print("\n🔍 MODEL (UNET) TENSOR ANALYSIS:")
-            model_monitor.print_tensor_info(ksampler_model, "UNET Model")
+            # Monitor model (UNET) - ModelPatcher object, not a tensor
+            print("\n🔍 MODEL (UNET) ANALYSIS:")
+            print(f"   📊 UNET Model: {type(ksampler_model).__name__}")
+            if hasattr(ksampler_model, 'model'):
+                print(f"   📊 UNET Model Type: {type(ksampler_model.model).__name__}")
+            if hasattr(ksampler_model, 'model_config'):
+                print(f"   📊 UNET Config: {type(ksampler_model.model_config).__name__}")
+            print(f"   ℹ️  ModelPatcher is a wrapper object, not a tensor")
             
             # Original KSampler execution (unchanged)
             ksampler = KSampler()
@@ -3883,9 +3910,44 @@ def main():
                 latent_image=ksampler_latent,
             )
             
-            # Monitor KSampler output
+            # Monitor KSampler output (tuple containing latent dict)
             print("\n🔍 KSAMPLER OUTPUT TENSOR ANALYSIS:")
-            model_monitor.print_tensor_info(ksampler_14, "KSampler Output")
+            print(f"   📊 KSampler output type: {type(ksampler_14).__name__}")
+            
+            if isinstance(ksampler_14, (list, tuple)) and len(ksampler_14) > 0:
+                latent_dict = ksampler_14[0]
+                print(f"   📊 Latent dict type: {type(latent_dict).__name__}")
+                
+                if isinstance(latent_dict, dict):
+                    print(f"   📊 Latent dict keys: {list(latent_dict.keys())}")
+                    
+                    # Monitor the "samples" tensor
+                    if 'samples' in latent_dict:
+                        samples_tensor = latent_dict['samples']
+                        print(f"   📊 Samples tensor type: {type(samples_tensor).__name__}")
+                        model_monitor.print_tensor_info(samples_tensor, "KSampler Samples Tensor")
+                        
+                        # Additional analysis for video latents
+                        if hasattr(samples_tensor, 'shape') and len(samples_tensor.shape) >= 4:
+                            print(f"   📊 Video latent analysis:")
+                            print(f"      📐 Batch size: {samples_tensor.shape[0]}")
+                            print(f"      📐 Channels: {samples_tensor.shape[1]}")
+                            print(f"      📐 Frames: {samples_tensor.shape[2]}")
+                            print(f"      📐 Height: {samples_tensor.shape[3]}")
+                            print(f"      📐 Width: {samples_tensor.shape[4] if len(samples_tensor.shape) > 4 else 'N/A'}")
+                    else:
+                        print(f"   ⚠️  No 'samples' key found in latent dict")
+                        
+                    # Monitor other keys in the latent dict
+                    for key, value in latent_dict.items():
+                        if key != 'samples':
+                            print(f"   📊 Latent dict key '{key}': {type(value).__name__}")
+                            if hasattr(value, 'shape'):
+                                model_monitor.print_tensor_info(value, f"KSampler Latent[{key}]")
+                else:
+                    model_monitor.print_tensor_info(latent_dict, "KSampler Output[0]")
+            else:
+                model_monitor.print_tensor_info(ksampler_14, "KSampler Output")
             
             print("="*80)
             print("✅ Step 6 completed: KSampler Execution with Comprehensive Tensor Monitoring")
