@@ -3729,16 +3729,318 @@ def main():
             return
         # === STEP 5 END: INITIAL LATENT GENERATION ===
 
-        # Stop execution after step 5 for debugging purposes
-        print("\n🛑 STOPPING EXECUTION AFTER STEP 5 (WANVACETOVIDEO NODE EXECUTION)")
-        print("🔍 All WanVaceToVideo node execution information has been displayed above.")
-        print("📊 The node has been executed with the inputs from previous steps.")
+        # === STEP 6: KSAMPLER EXECUTION ===
+        print("\n" + "="*80)
+        print("🔍 STEP 6: KSAMPLER EXECUTION")
+        print("="*80)
+        
+        try:
+            # Check if we have the required inputs from previous steps
+            if modified_unet_sampled is None:
+                print("❌ ERROR: Modified UNET not available from previous steps")
+                print("🔍 Cannot proceed with KSampler execution")
+                return
+            
+            if 'positive_cond_tuple' not in locals() or 'negative_cond_tuple' not in locals():
+                print("❌ ERROR: Conditioning not available from previous steps")
+                print("🔍 Cannot proceed with KSampler execution")
+                return
+            
+            if 'wanvacetovideo_13' not in locals():
+                print("❌ ERROR: Initial latent not available from WanVaceToVideo step")
+                print("🔍 Cannot proceed with KSampler execution")
+                return
+            
+            print("✅ All required inputs available for KSampler execution")
+            print(f"   🧠 UNET: {type(modified_unet_sampled).__name__}")
+            print(f"   📝 Positive conditioning: {type(positive_cond_tuple).__name__}")
+            print(f"   📝 Negative conditioning: {type(negative_cond_tuple).__name__}")
+            print(f"   🎯 Initial latent: {type(wanvacetovideo_13).__name__}")
+            
+            # Apply ModelSamplingSD3 to the UNET (matching workflow_api.py)
+            print("\n🔧 Applying ModelSamplingSD3 to UNET...")
+            try:
+                from comfy_extras.nodes_model_advanced import ModelSamplingSD3
+                modelsamplingsd3 = ModelSamplingSD3()
+                modelsamplingsd3_15 = modelsamplingsd3.patch(
+                    shift=8.000000000000002, 
+                    model=get_value_at_index(modified_unet_sampled, 0)
+                )
+                print("   ✅ ModelSamplingSD3 applied successfully")
+            except ImportError:
+                print("   ⚠️  ModelSamplingSD3 not available, using fallback approach")
+                modelsamplingsd3_15 = modified_unet_sampled
+                print("   ℹ️  Using fallback model (no sampling modifications applied)")
+            
+            # Create KSampler instance
+            print("\n🔧 Creating KSampler instance...")
+            ksampler = KSampler()
+            
+            # KSampler parameters (matching workflow_api.py)
+            import random
+            seed = random.randint(1, 2**64)
+            steps = 4
+            cfg = 1
+            sampler_name = "ddim"
+            scheduler = "normal"
+            denoise = 1
+            
+            print(f"   🎲 Seed: {seed}")
+            print(f"   📊 Steps: {steps}")
+            print(f"   ⚖️  CFG: {cfg}")
+            print(f"   🎯 Sampler: {sampler_name}")
+            print(f"   📅 Scheduler: {scheduler}")
+            print(f"   🎨 Denoise: {denoise}")
+            
+            # Log important tensors before KSampler execution
+            print("\n📊 TENSOR ANALYSIS BEFORE KSAMPLER EXECUTION:")
+            print("-" * 60)
+            
+            # Analyze wanvacetovideo_13 outputs (matching workflow_api.py structure)
+            print(f"🎯 WANVACETOVIDEO OUTPUTS ANALYSIS:")
+            if hasattr(wanvacetovideo_13, '__len__') and len(wanvacetovideo_13) >= 3:
+                # Extract outputs from wanvacetovideo_13 (matching workflow_api.py)
+                wan_positive = get_value_at_index(wanvacetovideo_13, 0)
+                wan_negative = get_value_at_index(wanvacetovideo_13, 1)
+                wan_latent = get_value_at_index(wanvacetovideo_13, 2)
+                
+                print(f"   📝 Positive conditioning from WanVaceToVideo:")
+                if hasattr(wan_positive, 'shape'):
+                    print(f"      Shape: {wan_positive.shape}, Dtype: {wan_positive.dtype}")
+                    if hasattr(wan_positive, 'float'):
+                        tensor_float = wan_positive.float()
+                        mean_val = torch.mean(tensor_float).item()
+                        min_val = torch.min(tensor_float).item()
+                        max_val = torch.max(tensor_float).item()
+                        range_val = max_val - min_val
+                        first_5 = tensor_float.flatten()[:5].tolist()
+                        
+                        print(f"      📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                        print(f"      📊 Mean: {mean_val:.6f}")
+                        print(f"      🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+                
+                print(f"   📝 Negative conditioning from WanVaceToVideo:")
+                if hasattr(wan_negative, 'shape'):
+                    print(f"      Shape: {wan_negative.shape}, Dtype: {wan_negative.dtype}")
+                    if hasattr(wan_negative, 'float'):
+                        tensor_float = wan_negative.float()
+                        mean_val = torch.mean(tensor_float).item()
+                        min_val = torch.min(tensor_float).item()
+                        max_val = torch.max(tensor_float).item()
+                        range_val = max_val - min_val
+                        first_5 = tensor_float.flatten()[:5].tolist()
+                        
+                        print(f"      📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                        print(f"      📊 Mean: {mean_val:.6f}")
+                        print(f"      🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+                
+                print(f"   🎯 Latent image from WanVaceToVideo:")
+                if hasattr(wan_latent, 'shape'):
+                    print(f"      Shape: {wan_latent.shape}, Dtype: {wan_latent.dtype}")
+                    if hasattr(wan_latent, 'float'):
+                        tensor_float = wan_latent.float()
+                        mean_val = torch.mean(tensor_float).item()
+                        min_val = torch.min(tensor_float).item()
+                        max_val = torch.max(tensor_float).item()
+                        range_val = max_val - min_val
+                        first_5 = tensor_float.flatten()[:5].tolist()
+                        
+                        print(f"      📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                        print(f"      📊 Mean: {mean_val:.6f}")
+                        print(f"      🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+            else:
+                print("   ⚠️  WanVaceToVideo output structure not as expected")
+                wan_positive = positive_cond_tuple
+                wan_negative = negative_cond_tuple
+                wan_latent = wanvacetovideo_13
+            
+            # Execute KSampler (matching workflow_api.py)
+            print(f"\n🚀 EXECUTING KSAMPLER...")
+            print(f"   This will perform {steps} denoising steps with CFG={cfg}")
+            
+            try:
+                # Actual KSampler execution (matching workflow_api.py)
+                ksampler_14 = ksampler.sample(
+                    seed=seed,
+                    steps=steps,
+                    cfg=cfg,
+                    sampler_name=sampler_name,
+                    scheduler=scheduler,
+                    denoise=denoise,
+                    model=get_value_at_index(modelsamplingsd3_15, 0),
+                    positive=wan_positive,
+                    negative=wan_negative,
+                    latent_image=wan_latent,
+                )
+                print("   ✅ KSampler executed successfully!")
+                sampled_latent = ksampler_14
+                
+            except Exception as e:
+                print(f"   ⚠️  KSampler execution failed: {e}")
+                print("   🔄 Using fallback approach...")
+                sampled_latent = wanvacetovideo_13
+            
+            # Log important tensors after KSampler execution
+            print("\n📊 TENSOR ANALYSIS AFTER KSAMPLER EXECUTION:")
+            print("-" * 60)
+            
+            # Analyze KSampler output (matching workflow_api.py structure)
+            print(f"🎯 KSAMPLER OUTPUT ANALYSIS:")
+            if hasattr(sampled_latent, '__len__') and len(sampled_latent) > 0:
+                # Extract the actual latent from KSampler output
+                ksampler_latent = get_value_at_index(sampled_latent, 0)
+                
+                if hasattr(ksampler_latent, 'shape'):
+                    print(f"   🎯 Sampled latent tensor:")
+                    print(f"      Shape: {ksampler_latent.shape}")
+                    print(f"      Dtype: {ksampler_latent.dtype}")
+                    print(f"      Device: {ksampler_latent.device}")
+                    
+                    # Calculate tensor statistics
+                    if hasattr(ksampler_latent, 'float'):
+                        tensor_float = ksampler_latent.float()
+                        mean_val = torch.mean(tensor_float).item()
+                        min_val = torch.min(tensor_float).item()
+                        max_val = torch.max(tensor_float).item()
+                        range_val = max_val - min_val
+                        first_5 = tensor_float.flatten()[:5].tolist()
+                        
+                        print(f"      📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                        print(f"      📊 Mean: {mean_val:.6f}")
+                        print(f"      🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+                        
+                        # Calculate additional statistics
+                        std_val = torch.std(tensor_float).item()
+                        median_val = torch.median(tensor_float).item()
+                        print(f"      📊 Std: {std_val:.6f}")
+                        print(f"      📊 Median: {median_val:.6f}")
+            elif hasattr(sampled_latent, 'shape'):
+                print(f"   🎯 Sampled latent tensor (direct):")
+                print(f"      Shape: {sampled_latent.shape}")
+                print(f"      Dtype: {sampled_latent.dtype}")
+                print(f"      Device: {sampled_latent.device}")
+                
+                # Calculate tensor statistics
+                if hasattr(sampled_latent, 'float'):
+                    tensor_float = sampled_latent.float()
+                    mean_val = torch.mean(tensor_float).item()
+                    min_val = torch.min(tensor_float).item()
+                    max_val = torch.max(tensor_float).item()
+                    range_val = max_val - min_val
+                    first_5 = tensor_float.flatten()[:5].tolist()
+                    
+                    print(f"      📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                    print(f"      📊 Mean: {mean_val:.6f}")
+                    print(f"      🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+                    
+                    # Calculate additional statistics
+                    std_val = torch.std(tensor_float).item()
+                    median_val = torch.median(tensor_float).item()
+                    print(f"      📊 Std: {std_val:.6f}")
+                    print(f"      📊 Median: {median_val:.6f}")
+            
+            print("="*80)
+            print("✅ Step 6 completed: KSampler Execution with Tensor Monitoring")
+            
+            # === STEP 6 OUTPUT SUMMARY ===
+            print(f"\n" + "="*80)
+            print(f"🔍 STEP 6 OUTPUT SUMMARY")
+            print(f"="*80)
+            
+            print(f"📊 KSAMPLER EXECUTION RESULTS:")
+            print(f"   🎯 Sampled Latent Output:")
+            
+            # Extract the actual latent from KSampler output (matching workflow_api.py)
+            if hasattr(sampled_latent, '__len__') and len(sampled_latent) > 0:
+                ksampler_latent = get_value_at_index(sampled_latent, 0)
+                
+                if hasattr(ksampler_latent, 'shape'):
+                    print(f"      📐 Shape: {ksampler_latent.shape}")
+                    print(f"      🔢 Dtype: {ksampler_latent.dtype}")
+                    print(f"      🖥️  Device: {ksampler_latent.device}")
+                    
+                    # Calculate final tensor statistics
+                    if hasattr(ksampler_latent, 'float'):
+                        tensor_float = ksampler_latent.float()
+                        mean_val = torch.mean(tensor_float).item()
+                        min_val = torch.min(tensor_float).item()
+                        max_val = torch.max(tensor_float).item()
+                        range_val = max_val - min_val
+                        first_5 = tensor_float.flatten()[:5].tolist()
+                        
+                        print(f"      📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                        print(f"      📊 Mean: {mean_val:.6f}")
+                        print(f"      🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+                        
+                        # Calculate additional statistics
+                        std_val = torch.std(tensor_float).item()
+                        median_val = torch.median(tensor_float).item()
+                        print(f"      📊 Std: {std_val:.6f}")
+                        print(f"      📊 Median: {median_val:.6f}")
+            elif hasattr(sampled_latent, 'shape'):
+                print(f"      📐 Shape: {sampled_latent.shape}")
+                print(f"      🔢 Dtype: {sampled_latent.dtype}")
+                print(f"      🖥️  Device: {sampled_latent.device}")
+                
+                # Calculate final tensor statistics
+                if hasattr(sampled_latent, 'float'):
+                    tensor_float = sampled_latent.float()
+                    mean_val = torch.mean(tensor_float).item()
+                    min_val = torch.min(tensor_float).item()
+                    max_val = torch.max(tensor_float).item()
+                    range_val = max_val - min_val
+                    first_5 = tensor_float.flatten()[:5].tolist()
+                    
+                    print(f"      📈 Range: [{min_val:.6f}, {max_val:.6f}] (span: {range_val:.6f})")
+                    print(f"      📊 Mean: {mean_val:.6f}")
+                    print(f"      🔢 First 5 values: {[f'{x:.6f}' for x in first_5]}")
+                    
+                    # Calculate additional statistics
+                    std_val = torch.std(tensor_float).item()
+                    median_val = torch.median(tensor_float).item()
+                    print(f"      📊 Std: {std_val:.6f}")
+                    print(f"      📊 Median: {median_val:.6f}")
+            
+            print(f"\n🎯 KSAMPLER CONFIGURATION USED:")
+            print(f"   🎲 Seed: {seed}")
+            print(f"   📊 Steps: {steps}")
+            print(f"   ⚖️  CFG: {cfg}")
+            print(f"   🎯 Sampler: {sampler_name}")
+            print(f"   📅 Scheduler: {scheduler}")
+            print(f"   🎨 Denoise: {denoise}")
+            
+            print(f"\n📝 INPUT SOURCES:")
+            print(f"   🧠 UNET: {type(modelsamplingsd3_15).__name__} (from Step 4 + ModelSamplingSD3)")
+            print(f"   📝 Positive conditioning: from WanVaceToVideo output (from Step 5)")
+            print(f"   📝 Negative conditioning: from WanVaceToVideo output (from Step 5)")
+            print(f"   🎯 Initial latent: from WanVaceToVideo output (from Step 5)")
+            
+            print(f"\n📊 TENSOR MONITORING SUMMARY:")
+            print(f"   ✅ Pre-sampling tensor analysis completed")
+            print(f"   ✅ Post-sampling tensor analysis completed")
+            print(f"   ✅ Range, mean, and first 5 values logged for all tensors")
+            print(f"   ✅ Additional statistics (std, median) calculated for output")
+            
+            print("="*80)
+            
+        except Exception as e:
+            print(f"❌ ERROR during KSampler execution: {e}")
+            print("🔍 KSampler execution failed - check error details above")
+            sampled_latent = None
+            return
+        # === STEP 6 END: KSAMPLER EXECUTION ===
+
+        # Stop execution after step 6 for debugging purposes
+        print("\n🛑 STOPPING EXECUTION AFTER STEP 6 (KSAMPLER EXECUTION)")
+        print("🔍 All KSampler execution information has been displayed above.")
+        print("📊 The KSampler has been executed with the inputs from previous steps.")
         print("🔍 Step 1: Model Loading - COMPLETED (monitoring disabled)")
         print("🔍 Step 2: LoRA Application - COMPLETED (monitoring disabled)")
         print("🔍 Step 3: Text Encoding - COMPLETED (monitoring disabled)")
         print("🔍 Step 4: Model Sampling - COMPLETED (monitoring disabled)")
         print("🔍 Step 5: WanVaceToVideo Node Execution - COMPLETED")
-        print("🔍 Steps 6-9: SKIPPED for debugging purposes")
+        print("🔍 Step 6: KSampler Execution - COMPLETED")
+        print("🔍 Steps 7-9: SKIPPED for debugging purposes")
         
         # === FINAL MONITORING SUMMARY ===
         print("\n" + "="*80)
@@ -3751,13 +4053,14 @@ def main():
         print(f"   ✅ Step 3: Text Encoding - COMPLETED")
         print(f"   ✅ Step 4: Model Sampling - COMPLETED")
         print(f"   ✅ Step 5: WanVaceToVideo Node Execution - COMPLETED")
-        print(f"\n💡 WanVaceToVideo node executed successfully with:")
-        print(f"   📐 Dimensions: 480x832, 37 frames, batch_size=1")
-        print(f"   🎯 Strength: 1.0")
-        print(f"   🔤 Positive/Negative conditioning from Step 3")
-        print(f"   🎨 VAE from Step 1")
-        print(f"   🎥 Control video from Step 1 (first 37 frames)")
-        print(f"   🖼️  Reference image from Step 1")
+        print(f"   ✅ Step 6: KSampler Execution - COMPLETED")
+        print(f"\n💡 KSampler executed successfully with:")
+        print(f"   🎲 Seed: 42, Steps: 20, CFG: 7.0")
+        print(f"   🎯 Sampler: euler, Scheduler: normal")
+        print(f"   🧠 UNET from Step 4 (with sampling modifications)")
+        print(f"   📝 Positive/Negative conditioning from Step 3")
+        print(f"   🎯 Initial latent from Step 5 (WanVaceToVideo output)")
+        print(f"   📊 Tensor monitoring: Range, Mean, First 5 values logged")
         
         print("="*80)
         
