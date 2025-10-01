@@ -3663,48 +3663,48 @@ def main():
             # === EXECUTE WANVACETOVIDEO WITH MONITORED VAE ===
             print(f"\n   🔧 EXECUTING WANVACETOVIDEO WITH MONITORED VAE...")
             
-            try:
-                # Import WanVaceToVideo node
-                from comfy_extras.nodes_wan import WanVaceToVideo
-                print("      ✅ WanVaceToVideo node imported successfully")
-                
-                # Create node instance
-                wanvacetovideo = WanVaceToVideo()
-                print("      ✅ WanVaceToVideo node instance created")
-                
-                # Temporarily replace the VAE in the node to use our monitored version
-                # We need to patch the node's VAE reference
-                original_vae_ref = get_value_at_index(vaeloader_7, 0)
-                
-                # Execute the node with our monitored VAE
-                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED with monitored VAE...")
-                
-                wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
-                    width=480,
-                    height=832,
-                    length=37,
-                    batch_size=1,
-                    strength=1,
-                    positive=get_value_at_index(positive_cond_tuple, 0),
-                    negative=get_value_at_index(negative_cond_tuple, 0),
-                    vae=monitored_vae,  # Use our monitored VAE
-                    control_video=get_value_at_index(vhs_loadvideo_1, 0),
-                    reference_image=get_value_at_index(loadimage_4, 0),
-                )
-                ksampler_14  = KSampler()
-
-                ksampler_14 = ksampler.sample(
-                seed=random.randint(1, 2**64),
-                steps=4,
-                cfg=1,
-                sampler_name="ddim",
-                scheduler="normal",
-                denoise=1,
-                model=get_value_at_index(modified_unet_sampled, 0),
-                positive=get_value_at_index(wanvacetovideo_13, 0),
-                negative=get_value_at_index(wanvacetovideo_13, 1),
-                latent_image=get_value_at_index(wanvacetovideo_13, 2),
+        
+            # Import WanVaceToVideo node
+            from comfy_extras.nodes_wan import WanVaceToVideo
+            print("      ✅ WanVaceToVideo node imported successfully")
+            
+            # Create node instance
+            wanvacetovideo = WanVaceToVideo()
+            print("      ✅ WanVaceToVideo node instance created")
+            
+            # Temporarily replace the VAE in the node to use our monitored version
+            # We need to patch the node's VAE reference
+            original_vae_ref = get_value_at_index(vaeloader_7, 0)
+            
+            # Execute the node with our monitored VAE
+            print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED with monitored VAE...")
+            
+            wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
+                width=480,
+                height=832,
+                length=37,
+                batch_size=1,
+                strength=1,
+                positive=get_value_at_index(positive_cond_tuple, 0),
+                negative=get_value_at_index(negative_cond_tuple, 0),
+                vae=monitored_vae,  # Use our monitored VAE
+                control_video=get_value_at_index(vhs_loadvideo_1, 0),
+                reference_image=get_value_at_index(loadimage_4, 0),
             )
+            ksampler_14  = KSampler()
+
+            ksampler_14 = ksampler.sample(
+            seed=random.randint(1, 2**64),
+            steps=4,
+            cfg=1,
+            sampler_name="ddim",
+            scheduler="normal",
+            denoise=1,
+            model=get_value_at_index(modified_unet_sampled, 0),
+            positive=get_value_at_index(wanvacetovideo_13, 0),
+            negative=get_value_at_index(wanvacetovideo_13, 1),
+            latent_image=get_value_at_index(wanvacetovideo_13, 2),
+        )
 
         
         return
