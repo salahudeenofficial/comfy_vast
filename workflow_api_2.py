@@ -3742,7 +3742,7 @@ def main():
                 return getattr(self.original_vae, name)
         
             # Wrap the VAE model with monitoring
-            monitored_vae = VAEEncodeWrapper(vae_model, vae_encode_monitor)
+            # monitored_vae = VAEEncodeWrapper(vae_model, vae_encode_monitor)
             print(f"   ✅ VAE model wrapped with encode monitoring")
             
             # === EXECUTE WANVACETOVIDEO WITH MONITORED VAE ===
@@ -3772,7 +3772,7 @@ def main():
                 strength=1,
                 positive=get_value_at_index(positive_cond_tuple, 0),
                 negative=get_value_at_index(negative_cond_tuple, 0),
-                vae=monitored_vae,  # Use our monitored VAE
+                vae=vae_model,  # Use our monitored VAE
                 control_video=get_value_at_index(vhs_loadvideo_1, 0),
                 reference_image=get_value_at_index(loadimage_4, 0),
             )
