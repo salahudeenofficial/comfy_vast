@@ -3749,34 +3749,34 @@ def main():
             print(f"\n   🔧 EXECUTING WANVACETOVIDEO WITH MONITORED VAE...")
             
         
-            # Import WanVaceToVideo node
-            from comfy_extras.nodes_wan import WanVaceToVideo
-            print("      ✅ WanVaceToVideo node imported successfully")
-            
-            # Create node instance
-            wanvacetovideo = WanVaceToVideo()
-            print("      ✅ WanVaceToVideo node instance created")
-            
-            # Temporarily replace the VAE in the node to use our monitored version
-            # We need to patch the node's VAE reference
-            original_vae_ref = get_value_at_index(vaeloader_7, 0)
-            
-            # Execute the node with our monitored VAE
-            print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED with monitored VAE...")
-            
-            wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
-                width=480,
-                height=832,
-                length=37,
-                batch_size=1,
-                strength=1,
-                positive=get_value_at_index(positive_cond_tuple, 0),
-                negative=get_value_at_index(negative_cond_tuple, 0),
-                vae=monitored_vae,  # Use our monitored VAE
-                control_video=get_value_at_index(vhs_loadvideo_1, 0),
-                reference_image=get_value_at_index(loadimage_4, 0),
-            )
-            
+                # Import WanVaceToVideo node
+                from comfy_extras.nodes_wan import WanVaceToVideo
+                print("      ✅ WanVaceToVideo node imported successfully")
+                
+                # Create node instance
+                wanvacetovideo = WanVaceToVideo()
+                print("      ✅ WanVaceToVideo node instance created")
+                
+                # Temporarily replace the VAE in the node to use our monitored version
+                # We need to patch the node's VAE reference
+                original_vae_ref = get_value_at_index(vaeloader_7, 0)
+                
+                # Execute the node with our monitored VAE
+                print("      🔧 Executing WanVaceToVideo.EXECUTE_NORMALIZED with monitored VAE...")
+                
+                wanvacetovideo_13 = wanvacetovideo.EXECUTE_NORMALIZED(
+                    width=480,
+                    height=832,
+                    length=37,
+                    batch_size=1,
+                    strength=1,
+                    positive=get_value_at_index(positive_cond_tuple, 0),
+                    negative=get_value_at_index(negative_cond_tuple, 0),
+                    vae=monitored_vae,  # Use our monitored VAE
+                    control_video=get_value_at_index(vhs_loadvideo_1, 0),
+                    reference_image=get_value_at_index(loadimage_4, 0),
+                )
+                
             # === STEP 6: KSAMPLER EXECUTION ===
             print("\n" + "="*80)
             print("🔍 STEP 6: KSAMPLER EXECUTION")
@@ -3948,8 +3948,8 @@ def main():
                     model_monitor.print_tensor_info(latent_dict, "KSampler Output[0]")
             else:
                 model_monitor.print_tensor_info(ksampler_14, "KSampler Output")
-            
-            print("="*80)
+        
+        print("="*80)
             print("✅ Step 6 completed: KSampler Execution with Comprehensive Tensor Monitoring")
         except Exception as e:
             print(f"❌ ERROR during KSampler execution: {e}")
