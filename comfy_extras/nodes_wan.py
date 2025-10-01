@@ -304,7 +304,7 @@ class WanVaceToVideo(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, positive, negative, H, width, height, length, batch_size, strength, control_video=None, control_masks=None, reference_image=None) -> io.NodeOutput:
+    def execute(cls, positive, negative, vae,H, width, height, length, batch_size, strength, control_video=None, control_masks=None, reference_image=None) -> io.NodeOutput:
         latent_length = ((length - 1) // 4) + 1
         if control_video is not None:
             control_video = comfy.utils.common_upscale(control_video[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
